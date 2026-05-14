@@ -1,10 +1,10 @@
 # CoherentGT MCP
 
-Dockerized stdio MCP server for inspecting and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
+Dockerized MCP server for inspecting and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
 
 - Host debugger: `http://127.0.0.1:19999/pagelist.json`
 - Docker debugger URL: `http://host.docker.internal:19999`
-- Transport: MCP stdio, no exposed Docker ports
+- Transports: MCP stdio, or shared Streamable HTTP on `/mcp`
 - Scope: debugger HTTP + WebKit Inspector endpoints
 
 ## Quick Start
@@ -38,6 +38,40 @@ docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
 ### 4. Add the MCP Server
+
+#### Shared HTTP Server (Recommended For Codex)
+
+Run one shared Docker container:
+
+```powershell
+docker run -d --rm `
+  --name coherent-gt-mcp-shared `
+  -p 3333:3333 `
+  -e COHERENT_GT_TRANSPORT=http `
+  -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
+  ghcr.io/parallel42/coherent-gt-mcp:latest
+```
+
+Codex TOML:
+
+```toml
+[mcp_servers.coherent-gt-mcp]
+url = "http://127.0.0.1:3333/mcp"
+```
+
+All Codex sessions that use this URL connect to the same container and share persistent debugger session state. Check the shared server with:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:3333/health
+```
+
+Stop it with:
+
+```powershell
+docker stop coherent-gt-mcp-shared
+```
+
+#### Stdio Per Client
 
 JSON clients:
 
@@ -76,7 +110,7 @@ args = [
 
 Restart the agent, then call `coherentgt_health` and `coherentgt_list_views`.
 
-Do not set a fixed Docker `--name` in MCP client configurations. MCP clients start the server as a stdio subprocess, and a named container can block future agent starts if a previous process is still running or did not shut down cleanly. Use `--name` only for one-off manual debugging commands where you also manage container cleanup yourself.
+Do not set a fixed Docker `--name` in stdio MCP client configurations. Stdio clients start the server as a subprocess, and a named container can block future agent starts if a previous process is still running or did not shut down cleanly. Use `--name` only for one-off manual debugging commands or for the shared HTTP container you manage explicitly.
 
 ## Update
 
@@ -90,13 +124,17 @@ Restart the agent after pulling the new image.
 
 | Variable | Default |
 | --- | --- |
+| `COHERENT_GT_TRANSPORT` | `stdio` |
 | `COHERENT_GT_DEBUGGER_URL` | `http://host.docker.internal:19999` |
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` |
 | `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` |
+| `COHERENT_GT_HTTP_HOST` | `0.0.0.0` |
+| `COHERENT_GT_HTTP_PORT` | `3333` |
+| `COHERENT_GT_HTTP_PATH` | `/mcp` |
 
-`COHERENT_GT_DEBUGGER_URL` uses `host.docker.internal` because the server runs inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` defaults to 50 minutes; set it to `0` to disable automatic shutdown.
+`COHERENT_GT_DEBUGGER_URL` uses `host.docker.internal` because the server runs inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio mode and defaults to 50 minutes; set it to `0` to disable automatic shutdown.
 
 ## Tools
 

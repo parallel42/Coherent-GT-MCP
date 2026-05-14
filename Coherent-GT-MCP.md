@@ -4,14 +4,14 @@
 
 CoherentGT MCP is a Dockerized TypeScript MCP server for inspecting, debugging, and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
 
-The project exposes a stdio MCP server that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, and run persistent debugger sessions with breakpoints and call-frame inspection.
+The project exposes stdio and Streamable HTTP MCP transports that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, and run persistent debugger sessions with breakpoints and call-frame inspection.
 
 Canonical names:
 
 - Repository: `Coherent-GT-MCP`
 - Package/server: `coherent-gt-mcp`
 - Docker image: `ghcr.io/parallel42/coherent-gt-mcp:latest`
-- Container examples: unnamed MCP stdio containers; use a fixed name only for manual debugging.
+- Container examples: unnamed MCP stdio containers or one named shared HTTP container.
 
 References:
 
@@ -21,13 +21,27 @@ References:
 
 ## Runtime Model
 
-The server runs as an MCP stdio process. No HTTP port is exposed by the container because the MCP client communicates over standard input/output.
+The server supports two MCP transport modes:
 
-Typical topology:
+- `stdio`: one server process per MCP client, communicating over standard input/output.
+- `http`: one shared Streamable HTTP server, typically exposed on `http://127.0.0.1:3333/mcp`, that can be reused by multiple MCP clients and agent sessions.
+
+Stdio topology:
 
 ```text
 MCP client/agent
   -> docker run --rm -i ghcr.io/parallel42/coherent-gt-mcp:latest
+    -> http://host.docker.internal:19999/pagelist.json
+    -> ws://host.docker.internal:19999/devtools/page/<pageId>
+      -> live Coherent GT/MSFS view
+```
+
+Shared HTTP topology:
+
+```text
+MCP client/agent A -> http://127.0.0.1:3333/mcp
+MCP client/agent B -> http://127.0.0.1:3333/mcp
+  -> docker run -d --name coherent-gt-mcp-shared -p 3333:3333 ...
     -> http://host.docker.internal:19999/pagelist.json
     -> ws://host.docker.internal:19999/devtools/page/<pageId>
       -> live Coherent GT/MSFS view
@@ -40,7 +54,7 @@ The host debugger endpoint is normally reachable at `http://127.0.0.1:19999` fro
 Normal users need:
 
 - Windows with Docker Desktop running Linux containers.
-- A stdio-capable MCP client or agent.
+- A stdio-capable MCP client or a Streamable HTTP-capable MCP client or agent.
 - MSFS running with the Coherent debugger endpoint available on the host.
 
 Docker Desktop installation:
@@ -67,7 +81,7 @@ Install the published image:
 docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
-Run command used by MCP clients:
+Run command used by stdio MCP clients:
 
 ```powershell
 docker run --rm -i `
@@ -75,9 +89,45 @@ docker run --rm -i `
   ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
-MCP client configurations should not set Docker `--name`. Clients launch the server as a stdio subprocess and may start it repeatedly across app restarts, CLI sessions, and retries. A fixed container name can leave future launches blocked by Docker's name uniqueness check if a previous process is still running or did not exit cleanly.
+MCP stdio client configurations should not set Docker `--name`. Stdio clients launch the server as a subprocess and may start it repeatedly across app restarts, CLI sessions, and retries. A fixed container name can leave future launches blocked by Docker's name uniqueness check if a previous process is still running or did not exit cleanly.
 
 ## MCP Client Configuration
+
+### Shared HTTP Server
+
+Run one shared Docker container:
+
+```powershell
+docker run -d --rm `
+  --name coherent-gt-mcp-shared `
+  -p 3333:3333 `
+  -e COHERENT_GT_TRANSPORT=http `
+  -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
+  ghcr.io/parallel42/coherent-gt-mcp:latest
+```
+
+Codex TOML:
+
+```toml
+[mcp_servers.coherent-gt-mcp]
+url = "http://127.0.0.1:3333/mcp"
+```
+
+All Codex sessions using that URL connect to the same container. Persistent debugger sessions, tracked scripts, and MCP-created breakpoints are shared through the long-running process.
+
+Health check:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:3333/health
+```
+
+Stop the shared server:
+
+```powershell
+docker stop coherent-gt-mcp-shared
+```
+
+### Stdio Per Client
 
 JSON clients:
 
@@ -120,11 +170,15 @@ Restart the MCP client after changing configuration or pulling a newer image.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `COHERENT_GT_TRANSPORT` | `stdio` | MCP transport mode: `stdio` or `http`. |
 | `COHERENT_GT_DEBUGGER_URL` | `http://host.docker.internal:19999` | Base URL for the Coherent debugger service from inside Docker. |
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` | Timeout for debugger HTTP requests such as `/pagelist.json`. |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` | Timeout for WebKit Inspector WebSocket commands. |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` | Maximum JSON text payload size returned through MCP before truncation metadata is emitted. |
-| `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` | Idle shutdown timer for long-running containers. Set to `0` to disable automatic shutdown. |
+| `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` | Stdio idle shutdown timer. Set to `0` to disable automatic shutdown. |
+| `COHERENT_GT_HTTP_HOST` | `0.0.0.0` | HTTP bind host when `COHERENT_GT_TRANSPORT=http`. |
+| `COHERENT_GT_HTTP_PORT` | `3333` | HTTP bind port when `COHERENT_GT_TRANSPORT=http`. |
+| `COHERENT_GT_HTTP_PATH` | `/mcp` | Streamable HTTP MCP endpoint path. |
 
 Configuration is normalized at startup. Paths, query strings, fragments, and trailing slashes are stripped from `COHERENT_GT_DEBUGGER_URL` before requests are made.
 
@@ -483,14 +537,14 @@ Current unit coverage includes:
 - Runtime snippet argument escaping through `JSON.stringify`.
 - Compatibility checks that generated snippets avoid unsupported modern JavaScript syntax.
 - Oversized MCP JSON response truncation behavior.
-- Config defaults for WebSocket timeout and idle shutdown.
+- Config defaults for transport, WebSocket timeout, idle shutdown, and HTTP binding.
 
 Manual acceptance checks:
 
 1. Start MSFS.
 2. Confirm the host can open `http://127.0.0.1:19999/pagelist.json`.
 3. Pull `ghcr.io/parallel42/coherent-gt-mcp:latest`.
-4. Run an MCP Inspector or local MCP client against the Docker stdio command.
+4. Run an MCP Inspector or local MCP client against either the Docker stdio command or the shared HTTP endpoint.
 5. Call `coherentgt_health`; expect `reachable: true` and a nonzero page count.
 6. Call `coherentgt_list_views`; expect entries such as `MAIN UI`, `Toolbar`, `ATLAS`, or aircraft/EFB panels depending on the session.
 7. Call `coherentgt_eval_js` with `document.title`.
@@ -522,12 +576,13 @@ Use the server only with local development targets you control. Treat MCP client
 - If views are missing, open or reload the relevant MSFS panel and call `coherentgt_list_views` again.
 - If native CSS/DOM/resource tools fail, retry with `coherentgt_inspector_command` to check whether that WebInspector domain is supported by the target Coherent build.
 - If persistent debugger tools report no active session, call `coherentgt_debug_start` for that `pageId` first.
-- If the container exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
+- If a stdio container exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
+- If HTTP clients cannot connect, verify the shared container is running and `Invoke-RestMethod http://127.0.0.1:3333/health` succeeds.
 
 ## Current Boundaries
 
-- The server is Dockerized stdio MCP only.
+- The server supports Dockerized stdio MCP and Dockerized Streamable HTTP MCP.
 - It does not ship a native C++ bridge.
-- It does not expose its own HTTP API.
+- The HTTP transport exposes local MCP and health endpoints only.
 - It is intended for local development/debugging, not embedded use in shipped products.
 - Coherent capability can vary by simulator state, loaded panel, and the WebInspector domains supported by the active Coherent build.

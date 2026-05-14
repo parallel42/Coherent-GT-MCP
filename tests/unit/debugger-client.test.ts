@@ -14,6 +14,22 @@ describe("config URL normalization", () => {
     expect(loadConfig({}).wsTimeoutMs).toBe(30000);
   });
 
+  it("defaults to stdio transport and normalizes HTTP settings", () => {
+    expect(
+      loadConfig({
+        COHERENT_GT_TRANSPORT: "http",
+        COHERENT_GT_HTTP_HOST: "127.0.0.1",
+        COHERENT_GT_HTTP_PORT: "3337",
+        COHERENT_GT_HTTP_PATH: "mcp"
+      })
+    ).toMatchObject({
+      transport: "http",
+      httpHost: "127.0.0.1",
+      httpPort: 3337,
+      httpPath: "/mcp"
+    });
+  });
+
   it("allows disabling idle shutdown", () => {
     expect(loadConfig({ COHERENT_GT_IDLE_TIMEOUT_MS: "0" }).idleTimeoutMs).toBe(0);
   });

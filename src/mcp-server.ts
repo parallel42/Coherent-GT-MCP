@@ -63,23 +63,37 @@ import { buildClickExpression } from "./tools/events.js";
 import { jsonToolResult } from "./tools/result.js";
 import { buildEngineCallExpression, buildEngineTriggerExpression, runtimeEvaluateParams } from "./tools/runtime.js";
 
-export function createMcpServer(config: AppConfig): McpServer {
+export type McpSharedState = {
+  debuggerClient: CoherentDebuggerClient;
+  debugSessions: DebugSessionManager;
+};
+
+export type CreateMcpServerOptions = {
+  state?: McpSharedState;
+  enableIdleShutdown?: boolean;
+  onIdle?: () => Promise<void>;
+};
+
+export function createMcpSharedState(config: AppConfig): McpSharedState {
+  return {
+    debuggerClient: new CoherentDebuggerClient(config.debuggerUrl, config.requestTimeoutMs),
+    debugSessions: new DebugSessionManager({
+      debuggerUrl: config.debuggerUrl,
+      timeoutMs: config.wsTimeoutMs
+    })
+  };
+}
+
+export function createMcpServer(config: AppConfig, options: CreateMcpServerOptions = {}): McpServer {
   const server = new McpServer({
     name: "coherent-gt-mcp",
     version: "0.1.0"
   });
 
-  const debuggerClient = new CoherentDebuggerClient(config.debuggerUrl, config.requestTimeoutMs);
-  const debugSessions = new DebugSessionManager({
-    debuggerUrl: config.debuggerUrl,
-    timeoutMs: config.wsTimeoutMs
-  });
+  const { debuggerClient, debugSessions } = options.state ?? createMcpSharedState(config);
   const idleShutdown = createIdleShutdown(config.idleTimeoutMs, async () => {
-    debugSessions.stopAll();
-    console.error(`coherent-gt-mcp exiting after ${config.idleTimeoutMs}ms without tool calls`);
-    await server.close();
-    process.exit(0);
-  });
+    await options.onIdle?.();
+  }, options.enableIdleShutdown ?? true);
 
   const run = async (fn: () => Promise<unknown> | unknown): Promise<CallToolResult> => {
     idleShutdown.reset();
@@ -764,7 +778,7 @@ export function createMcpServer(config: AppConfig): McpServer {
   return server;
 }
 
-function createIdleShutdown(timeoutMs: number, onIdle: () => Promise<void>): { reset: () => void } {
+function createIdleShutdown(timeoutMs: number, onIdle: () => Promise<void>, enabled: boolean): { reset: () => void } {
   let timer: NodeJS.Timeout | undefined;
 
   const reset = (): void => {
@@ -773,7 +787,7 @@ function createIdleShutdown(timeoutMs: number, onIdle: () => Promise<void>): { r
       timer = undefined;
     }
 
-    if (timeoutMs === 0) {
+    if (!enabled || timeoutMs === 0) {
       return;
     }
 
