@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "title": "MAIN UI",
+    "url": "coui://html_ui/Main/index.html",
+    "inspectorUrl": "http://127.0.0.1:19999/devtools/page/1"
+  },
+  {
+    "id": "2",
+    "title": "Toolbar",
+    "url": "coui://html_ui/Toolbar/index.html",
+    "inspectorUrl": "http://127.0.0.1:19999/devtools/page/2"
+  }
+]
