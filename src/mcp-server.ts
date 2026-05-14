@@ -65,7 +65,7 @@ import { buildEngineCallExpression, buildEngineTriggerExpression, runtimeEvaluat
 
 export function createMcpServer(config: AppConfig): McpServer {
   const server = new McpServer({
-    name: "p42-coherentgt-mcp",
+    name: "coherent-gt-mcp",
     version: "0.1.0"
   });
 
@@ -76,7 +76,7 @@ export function createMcpServer(config: AppConfig): McpServer {
   });
   const idleShutdown = createIdleShutdown(config.idleTimeoutMs, async () => {
     debugSessions.stopAll();
-    console.error(`p42-coherentgt-mcp exiting after ${config.idleTimeoutMs}ms without tool calls`);
+    console.error(`coherent-gt-mcp exiting after ${config.idleTimeoutMs}ms without tool calls`);
     await server.close();
     process.exit(0);
   });

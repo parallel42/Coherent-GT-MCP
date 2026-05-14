@@ -10,45 +10,21 @@ Dockerized stdio MCP server for inspecting and controlling live Coherent GT/MSFS
 ## Requirements
 
 - Windows with Docker Desktop running Linux containers.
-- Git for cloning the repository.
-- GitHub CLI for authentication if the repository requires access through GitHub.
 - A stdio-capable MCP client or agent.
 - Coherent GT/MSFS debugger service enabled and reachable on the host at `http://127.0.0.1:19999/pagelist.json`.
-- Optional local development only: Node.js 20+ and npm.
 
-Install the Windows tooling from PowerShell:
+Normal use does not require Git, GitHub CLI, Node.js, npm, or a source checkout.
+
+If Docker Desktop is not already installed, install it from PowerShell:
 
 ```powershell
-winget install --id Git.Git -e
-winget install --id GitHub.cli -e
 winget install --id Docker.DockerDesktop -e
 ```
 
-For local development outside Docker, also install Node.js:
+After installing, restart PowerShell, start Docker Desktop, and verify Docker:
 
 ```powershell
-winget install --id OpenJS.NodeJS.LTS -e
-```
-
-After installing, restart PowerShell, start Docker Desktop, and verify the tools:
-
-```powershell
-git --version
-gh --version
 docker version
-```
-
-If you installed Node.js for local development, verify it too:
-
-```powershell
-node --version
-npm --version
-```
-
-If GitHub authentication is required, run:
-
-```powershell
-gh auth login
 ```
 
 Enable the Coherent GT/MSFS debugger or developer module in the simulator/add-on environment, then verify the host endpoint:
@@ -59,13 +35,15 @@ Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
 
 Docker containers must target `http://host.docker.internal:19999`, not `http://127.0.0.1:19999`.
 
-## Build
+## Install
+
+Pull the ready-to-run image:
 
 ```powershell
-git clone https://github.com/parallel42/Coherent-GT-MCP.git
-cd Coherent-GT-MCP
-docker build -t coherent-gt-mcp .
+docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
+
+No build step is required.
 
 ## MCP Config
 
@@ -84,7 +62,7 @@ JSON clients:
         "-i",
         "-e",
         "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-        "coherent-gt-mcp"
+        "ghcr.io/parallel42/coherent-gt-mcp:latest"
       ]
     }
   }
@@ -104,21 +82,56 @@ args = [
   "-i",
   "-e",
   "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-  "coherent-gt-mcp"
+  "ghcr.io/parallel42/coherent-gt-mcp:latest"
 ]
 ```
 
 Restart the agent after changing MCP config.
+
+## Update
+
+Pull the newest image:
+
+```powershell
+docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
+```
+
+Then restart the agent that runs the MCP server.
 
 ## Manual Run
 
 ```powershell
 docker run --rm --name coherent-gt-mcp -i `
   -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
-  coherent-gt-mcp
+  ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
 The fixed Docker name is intentional. Docker will reject a second concurrent MCP instance with the same name, which protects the Coherent debugger from stale parallel inspector sessions.
+
+## Build From Source
+
+This is optional. Normal users should use the published image above.
+
+Download a source archive and build it with Docker:
+
+```powershell
+$zip = "$env:TEMP\coherent-gt-mcp.zip"
+$src = "$env:TEMP\Coherent-GT-MCP-master"
+Invoke-WebRequest https://github.com/parallel42/Coherent-GT-MCP/archive/refs/heads/master.zip -OutFile $zip
+Remove-Item -Recurse -Force $src -ErrorAction SilentlyContinue
+Expand-Archive $zip -DestinationPath $env:TEMP
+docker build -t coherent-gt-mcp $src
+```
+
+Use the locally built image by replacing `ghcr.io/parallel42/coherent-gt-mcp:latest` with `coherent-gt-mcp` in the MCP config.
+
+For local TypeScript development, install Node.js 20+ and run:
+
+```powershell
+npm ci
+npm test
+npm run build
+```
 
 ## Env
 
@@ -143,8 +156,9 @@ The fixed Docker name is intentional. Docker will reject a second concurrent MCP
 
 1. Start MSFS/Coherent debugger.
 2. Open `http://127.0.0.1:19999/pagelist.json` on the host.
-3. Build the image.
-4. In the agent, call `coherentgt_health`, then `coherentgt_list_views`.
+3. Pull the Docker image.
+4. Restart the agent with the MCP config above.
+5. In the agent, call `coherentgt_health`, then `coherentgt_list_views`.
 
 ## Security
 

@@ -10,7 +10,8 @@ The first version will use the documented/observable debugger HTTP and WebKit In
 - Coherent debugger service is reachable at `http://127.0.0.1:19999`.
 - `/pagelist.json` returns `{ id, title, url, inspectorUrl }`.
 - Inspector WebSocket URL is `ws://<host>/devtools/page/<pageId>`.
-- Docker Desktop is available; container default target should be `http://host.docker.internal:19999`.
+- Docker Desktop is the only normal user dependency; container default target should be `http://host.docker.internal:19999`.
+- Published image target is `ghcr.io/parallel42/coherent-gt-mcp:latest`.
 - MCP SDK latest local npm view: `@modelcontextprotocol/sdk@1.29.0`.
 
 References:
@@ -24,6 +25,9 @@ Create:
 ```text
 Coherent-GT-MCP/
   .dockerignore
+  .github/
+    workflows/
+      docker-image.yml
   .gitignore
   Dockerfile
   README.md
@@ -63,45 +67,21 @@ Use npm, TypeScript, ESM, Node 20+.
 Document that users need:
 
 - Windows with Docker Desktop running Linux containers.
-- Git for cloning the repository.
-- GitHub CLI for authentication if the repository requires access through GitHub.
 - A stdio-capable MCP client or agent.
 - Coherent GT/MSFS debugger service enabled and reachable on the host at `http://127.0.0.1:19999/pagelist.json`.
-- Optional local development only: Node.js 20+ and npm.
 
-Include PowerShell install commands:
+Document that normal use does not require Git, GitHub CLI, Node.js, npm, or a source checkout.
+
+Include the Docker Desktop PowerShell install command:
 
 ```powershell
-winget install --id Git.Git -e
-winget install --id GitHub.cli -e
 winget install --id Docker.DockerDesktop -e
 ```
 
-For local development outside Docker, also include:
+Tell users to restart PowerShell, start Docker Desktop, and verify Docker:
 
 ```powershell
-winget install --id OpenJS.NodeJS.LTS -e
-```
-
-Tell users to restart PowerShell, start Docker Desktop, and verify the installed tools:
-
-```powershell
-git --version
-gh --version
 docker version
-```
-
-If Node.js was installed for local development, verify it too:
-
-```powershell
-node --version
-npm --version
-```
-
-For GitHub authentication:
-
-```powershell
-gh auth login
 ```
 
 Tell users to enable the Coherent GT/MSFS debugger or developer module in the simulator/add-on environment and verify it from the host:
@@ -111,6 +91,14 @@ Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
 ```
 
 Docker containers must target `http://host.docker.internal:19999`, not `http://127.0.0.1:19999`.
+
+Normal install is just pulling the published image:
+
+```powershell
+docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
+```
+
+Source builds are optional and should work without Git by downloading the GitHub source archive and building with Docker.
 
 ## Runtime Defaults
 Default environment:
@@ -127,7 +115,7 @@ Docker command target:
 ```powershell
 docker run --rm -i `
   -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
-  coherent-gt-mcp
+  ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
 No Docker port exposure is needed for v1 because MCP transport is stdio.
@@ -228,6 +216,10 @@ Use `@modelcontextprotocol/sdk@1.29.0`, `zod`, `typescript`, and `tsx` for local
 - Connect with `StdioServerTransport`.
 - Log diagnostics only to stderr.
 
+`.github/workflows/docker-image.yml`:
+- Publish `ghcr.io/parallel42/coherent-gt-mcp:latest` on pushes to the default branch.
+- Publish tag and SHA image tags for release and traceability.
+
 ## Dockerfile
 Use a multi-stage Dockerfile:
 
@@ -256,14 +248,16 @@ CMD ["node", "dist/index.js"]
 Document:
 
 - What the server does.
-- Requirements and PowerShell install/verification commands for Git, GitHub CLI, Docker Desktop, optional Node.js, and the Coherent GT/MSFS debugger endpoint.
+- Requirements and PowerShell install/verification commands for Docker Desktop and the Coherent GT/MSFS debugger endpoint.
+- State clearly that normal users do not need Git, GitHub CLI, Node.js, npm, or a source checkout.
 - Requirement: Coherent GT debugger/developer module must be enabled and reachable.
 - Default MSFS/Coherent URL: `http://host.docker.internal:19999` in Docker.
-- How to build:
-  - `docker build -t coherent-gt-mcp .`
+- How to install:
+  - `docker pull ghcr.io/parallel42/coherent-gt-mcp:latest`
 - How to run with MCP stdio:
-  - `docker run --rm -i -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 coherent-gt-mcp`
+  - `docker run --rm -i -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 ghcr.io/parallel42/coherent-gt-mcp:latest`
 - Example MCP client config using Docker command.
+- Optional source build path using a GitHub source archive instead of Git.
 - Security warning: tools can evaluate JS, click UI, trigger `engine` events, reload, and navigate live views.
 - Troubleshooting:
   - Test host endpoint: `http://127.0.0.1:19999/pagelist.json`
@@ -284,7 +278,7 @@ Manual acceptance tests:
 
 1. Start MSFS/Coherent debugger service.
 2. Confirm host can open `http://127.0.0.1:19999/pagelist.json`.
-3. Build Docker image.
+3. Pull Docker image.
 4. Run MCP Inspector or a local MCP client against the Docker stdio command.
 5. Call `coherentgt_health`; expect reachable and nonzero page count.
 6. Call `coherentgt_list_views`; expect entries like `ATLAS`, `MAIN UI`, `Electronic Flight Bag`, `Toolbar`.
@@ -307,8 +301,8 @@ Only inspect/decompile binaries if:
 If binary inspection becomes necessary, document findings in `docs/protocol-notes.md` without committing proprietary binaries or extracted copyrighted source.
 
 ## Assumptions
-- The repository will be initialized as a new local Git repo.
 - The first implementation is Dockerized stdio MCP only.
+- Normal use should not require Git, GitHub CLI, Node.js, npm, or a source checkout.
 - Full-control tools are desired, including JS eval, event triggering, clicking, style mutation, reload, and navigation.
 - Coherent debugger target default is `http://host.docker.internal:19999`.
 - No native C++ bridge is included in v1.

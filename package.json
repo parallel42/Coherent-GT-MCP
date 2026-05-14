@@ -1,5 +1,5 @@
 {
-  "name": "p42-coherentgt-mcp",
+  "name": "coherent-gt-mcp",
   "version": "0.1.0",
   "description": "Dockerized TypeScript MCP server for controlling live Coherent GT/MSFS UI views through the Coherent debugger service.",
   "type": "module",
