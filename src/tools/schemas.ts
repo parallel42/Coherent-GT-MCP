@@ -6,6 +6,8 @@ export const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 export const healthInputSchema = z.object({}).strict();
 
+export const profileCapabilitiesInputSchema = z.object({}).strict();
+
 export const listViewsInputSchema = z
   .object({
     refresh: z.boolean().optional()

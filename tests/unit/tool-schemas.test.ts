@@ -8,6 +8,7 @@ import {
   layerTreeInputSchema,
   navigateViewInputSchema,
   outerHtmlInputSchema,
+  profileCapabilitiesInputSchema,
   profileEventsInputSchema,
   profileRawInputSchema,
   profileStartInputSchema,
@@ -156,6 +157,11 @@ describe("tool schemas", () => {
       maxCallStackDepth: 128,
       timelineInstruments: ["Timeline", "Memory"]
     });
+  });
+
+  it("accepts profiling capabilities input only as an empty object", () => {
+    expect(profileCapabilitiesInputSchema.parse({})).toEqual({});
+    expect(() => profileCapabilitiesInputSchema.parse({ pageId: 31 })).toThrow();
   });
 
   it("accepts profiling event and raw payload reads", () => {

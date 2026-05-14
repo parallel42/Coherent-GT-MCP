@@ -143,6 +143,11 @@ async function closeUpstream() {
 async function ensureSharedContainer() {
   const state = inspectContainer();
   if (state === "running") {
+    if (!containerUsesRequestedImage()) {
+      log(
+        `shared container is running with an older image id than ${image}; it will be refreshed after it stops`
+      );
+    }
     await waitForHealth();
     return;
   }
@@ -150,7 +155,12 @@ async function ensureSharedContainer() {
   if (state === "missing") {
     createContainer();
   } else {
-    startContainer();
+    if (containerUsesRequestedImage()) {
+      startContainer();
+    } else {
+      removeContainer();
+      createContainer();
+    }
   }
 
   await waitForHealth();
@@ -202,6 +212,15 @@ function createContainer() {
   throw new Error(`Failed to create shared MCP container: ${result.stderr || result.stdout}`);
 }
 
+function removeContainer() {
+  const result = docker(["rm", containerName], { check: false });
+  if (result.status === 0 || inspectContainer() === "missing") {
+    return;
+  }
+
+  throw new Error(`Failed to remove stale shared MCP container: ${result.stderr || result.stdout}`);
+}
+
 function startContainer() {
   const result = docker(["start", containerName], { check: false });
   if (result.status === 0 || inspectContainer() === "running") {
@@ -209,6 +228,20 @@ function startContainer() {
   }
 
   throw new Error(`Failed to start shared MCP container: ${result.stderr || result.stdout}`);
+}
+
+function containerUsesRequestedImage() {
+  const containerImage = docker(["inspect", "--format", "{{.Image}}", containerName], { check: false });
+  if (containerImage.status !== 0) {
+    return true;
+  }
+
+  const requestedImage = docker(["image", "inspect", "--format", "{{.Id}}", image], { check: false });
+  if (requestedImage.status !== 0) {
+    return true;
+  }
+
+  return containerImage.stdout.trim() === requestedImage.stdout.trim();
 }
 
 async function waitForHealth() {

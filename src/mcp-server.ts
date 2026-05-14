@@ -3,6 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
 import { CoherentDebuggerClient } from "./coherent/debugger-client.js";
 import type { AppConfig } from "./config.js";
+import { coherentgtProfileCapabilities } from "./tools/capabilities.js";
 import { coherentgtHealth } from "./tools/health.js";
 import { coherentgtInspectorCommand } from "./tools/inspector.js";
 import { buildLocationReloadExpression, pageNavigateParams, pageReloadParams } from "./tools/navigation.js";
@@ -51,6 +52,7 @@ import {
   navigateViewInputSchema,
   outerHtmlInputSchema,
   profileEventsInputSchema,
+  profileCapabilitiesInputSchema,
   profilePageInputSchema,
   profileRawInputSchema,
   profileStartInputSchema,
@@ -152,6 +154,17 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
       inputSchema: listViewsInputSchema
     },
     async () => run(() => coherentgtListViews(debuggerClient))
+  );
+
+  server.registerTool(
+    "coherentgt_profile_capabilities",
+    {
+      title: "Profiling Capabilities",
+      description:
+        "Explain Coherent GT legacy WebKit profiling support, Chrome-only domain limitations, and the recommended capture workflow for agents.",
+      inputSchema: profileCapabilitiesInputSchema
+    },
+    async () => run(() => coherentgtProfileCapabilities())
   );
 
   server.registerTool(
@@ -622,7 +635,8 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
     "coherentgt_capture_all_start",
     {
       title: "Start Full Capture",
-      description: "Start all supported profiling instruments: timeline, script, network, heap, and layer tree.",
+      description:
+        "Start all supported legacy WebKit profiling instruments: Timeline, ScriptProfiler, Network, Heap, and LayerTree. Use this instead of Chrome Performance/Profiler/Tracing probes.",
       inputSchema: captureAllStartInputSchema,
       annotations: { readOnlyHint: false }
     },

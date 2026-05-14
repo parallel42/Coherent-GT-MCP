@@ -105,6 +105,8 @@ args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\scripts\codex-s
 
 The proxy creates or starts the named `coherent-gt-mcp-shared` Docker container, connects to `http://127.0.0.1:3333/mcp`, and forwards Codex MCP traffic to that shared instance. The shared container exits after `COHERENT_GT_IDLE_TIMEOUT_MS` without requests and will be started again automatically by the next Codex session or tool call.
 
+When the named container is stopped, the proxy compares its image ID with the configured image tag and recreates the container if the tag now points at a newer local image. A running shared container is left alone so active agents keep the same instance.
+
 Manual shared-container command, if needed:
 
 Run one shared Docker container:
@@ -182,7 +184,7 @@ args = [
 ]
 ```
 
-Restart the MCP client after changing configuration or pulling a newer image.
+Restart the MCP client after changing configuration or pulling a newer image. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before an image update can still report the older limited tool set even when the shared HTTP endpoint is already current.
 
 ## Configuration
 
@@ -218,6 +220,7 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 | Script analysis | `coherentgt_debug_list_scripts`, `coherentgt_debug_get_script_source`, `coherentgt_debug_search_script`, `coherentgt_debug_search_all_scripts` | Track parsed scripts, retrieve script source, and search one or many scripts. |
 | Breakpoints | `coherentgt_debug_set_breakpoint_by_url`, `coherentgt_debug_set_breakpoint`, `coherentgt_debug_remove_breakpoint`, `coherentgt_debug_list_breakpoints`, `coherentgt_debug_set_event_listener_breakpoint`, `coherentgt_debug_set_xhr_breakpoint`, `coherentgt_debug_set_dom_breakpoint` | Manage URL, script-location, event-listener, XHR/fetch, and DOM breakpoints. |
 | Pause and stepping | `coherentgt_debug_pause`, `coherentgt_debug_resume`, `coherentgt_debug_step_over`, `coherentgt_debug_step_into`, `coherentgt_debug_step_out`, `coherentgt_debug_paused`, `coherentgt_debug_evaluate_on_call_frame` | Pause/resume JavaScript, step through paused code, inspect paused state, and evaluate in call frames. |
+| Profiling guidance | `coherentgt_profile_capabilities` | Explain legacy WebKit profiling support, Chrome-only domain limitations, recommended agent flow, and stale tool metadata symptoms. |
 | Profiling and telemetry | `coherentgt_profile_start`, `coherentgt_profile_stop`, `coherentgt_profile_status`, `coherentgt_profile_events`, `coherentgt_profile_raw`, `coherentgt_capture_all_start`, `coherentgt_capture_all_stop` | Capture legacy Timeline, ScriptProfiler, Network, Heap, and LayerTree events with compact summaries and raw payload lookup. |
 | Focused profiling | `coherentgt_script_profile_start`, `coherentgt_script_profile_stop`, `coherentgt_timeline_start`, `coherentgt_timeline_stop`, `coherentgt_network_capture_start`, `coherentgt_network_capture_stop`, `coherentgt_heap_snapshot`, `coherentgt_heap_start_tracking`, `coherentgt_heap_stop_tracking`, `coherentgt_heap_gc` | Run targeted captures for CPU/script samples, frame/layout/paint timelines, network waterfalls, and heap snapshots/tracking. |
 | Visual diagnostics | `coherentgt_layer_tree`, `coherentgt_compositing_reasons`, `coherentgt_set_paint_rects_visible`, `coherentgt_set_compositing_borders_visible` | Inspect layer/compositing data and toggle paint/compositing overlays. |
@@ -330,6 +333,12 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 ### Profiling and Telemetry
 
 Profiling keeps a WebInspector socket open per `pageId`, buffers legacy WebKit Inspector telemetry events, and stores large heap/script payloads behind `rawId` values.
+
+Start with `coherentgt_profile_capabilities` when an agent is unsure what the Coherent target supports. Coherent GT exposes a legacy WebKit Inspector surface, so agents should not spend time probing Chrome-only domains such as `Performance`, `Profiler`, `Tracing`, `HeapProfiler`, `DOMSnapshot`, or `Runtime.getHeapUsage`. Use `coherentgt_capture_all_start` for the broad capture path, then focused tools only when the summary points to a specific area. If a session cannot see `coherentgt_capture_all_start`, restart the MCP client/session so it reloads current tool metadata.
+
+- `coherentgt_profile_capabilities`
+  - Input: `{}`
+  - Returns the recommended agent workflow, legacy replacements for Chrome-only domains, supported telemetry categories, and limitations.
 
 - `coherentgt_profile_start`
   - Input: `{ pageId: number, instruments?: ("timeline"|"script"|"network"|"heap"|"layerTree")[], reload?: boolean, ignoreCache?: boolean, maxCallStackDepth?: number, timelineInstruments?: ("Timeline"|"ScriptProfiler"|"Memory"|"Heap")[] }`

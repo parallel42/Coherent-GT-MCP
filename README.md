@@ -51,6 +51,8 @@ args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\scripts\codex-s
 
 The proxy creates or starts a named `coherent-gt-mcp-shared` Docker container, connects to `http://127.0.0.1:3333/mcp`, and forwards Codex MCP traffic to that shared instance. The shared container exits after `COHERENT_GT_IDLE_TIMEOUT_MS` without requests and will be started again automatically by the next Codex session or tool call.
 
+When the named container is stopped, the proxy compares its image ID with the configured image tag and recreates the container if the tag now points at a newer local image. A running shared container is left alone so active agents keep the same instance.
+
 Manual shared-container command, if you want to run it yourself:
 
 Run one shared Docker container:
@@ -136,7 +138,7 @@ Do not set a fixed Docker `--name` in stdio MCP client configurations. Stdio cli
 docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
-Restart the agent after pulling the new image.
+Restart the agent after pulling the new image. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before the image update can still report the older limited tool set even when the shared HTTP endpoint is already current.
 
 ## Configuration
 
@@ -160,17 +162,20 @@ Restart the agent after pulling the new image.
 - Runtime/control: JavaScript eval, engine calls/events, clicks, reloads, and navigation
 - DOM/CSS/resources: document, selector, style, stylesheet, resource, and native inspector helpers
 - Debugger: persistent debug sessions, script search, breakpoints, pause/resume, stepping, and call-frame evaluation
-- Profiling: legacy timeline/script/network/heap/layer captures, compact summaries, raw payload lookup, and paint/compositing overlays
+- Profiling: capabilities guidance, legacy timeline/script/network/heap/layer captures, compact summaries, raw payload lookup, and paint/compositing overlays
 
 Quick profiling flow:
 
 ```text
+coherentgt_profile_capabilities({})
 coherentgt_capture_all_start({ "pageId": 31, "reload": true })
 coherentgt_capture_all_stop({ "pageId": 31 })
 coherentgt_profile_raw({ "pageId": 31, "rawId": "<rawId from summary>" })
 ```
 
 Use focused tools such as `coherentgt_timeline_start`, `coherentgt_network_capture_start`, `coherentgt_heap_snapshot`, and `coherentgt_set_paint_rects_visible` when you only need one diagnostic surface.
+
+Agent note: this is a Coherent GT legacy WebKit Inspector target, not modern Chrome DevTools. Agents should use `coherentgt_profile_capabilities` and the profiling tools above instead of probing Chrome-only domains such as `Performance`, `Profiler`, `Tracing`, `HeapProfiler`, `DOMSnapshot`, or `Runtime.getHeapUsage`. If an agent only sees structural/runtime tools and no `coherentgt_capture_all_start`, restart that agent session so it reloads the MCP tool list.
 
 ## Security
 
