@@ -86,6 +86,7 @@ export type CreateMcpServerOptions = {
   state?: McpSharedState;
   enableIdleShutdown?: boolean;
   onIdle?: () => Promise<void>;
+  onActivity?: () => void;
 };
 
 export function createMcpSharedState(config: AppConfig): McpSharedState {
@@ -115,6 +116,7 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
 
   const run = async (fn: () => Promise<unknown> | unknown): Promise<CallToolResult> => {
     idleShutdown.reset();
+    options.onActivity?.();
     try {
       return jsonToolResult(await fn(), config.maxTextBytes);
     } catch (error) {

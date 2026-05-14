@@ -44,7 +44,7 @@ docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
 Run one shared Docker container:
 
 ```powershell
-docker run -d --rm `
+docker run -d `
   --name coherent-gt-mcp-shared `
   -p 3333:3333 `
   -e COHERENT_GT_TRANSPORT=http `
@@ -69,6 +69,12 @@ Stop it with:
 
 ```powershell
 docker stop coherent-gt-mcp-shared
+```
+
+If the shared container has exited after being idle, start the same named container again:
+
+```powershell
+docker start coherent-gt-mcp-shared
 ```
 
 #### Stdio Per Client
@@ -134,7 +140,7 @@ Restart the agent after pulling the new image.
 | `COHERENT_GT_HTTP_PORT` | `3333` |
 | `COHERENT_GT_HTTP_PATH` | `/mcp` |
 
-`COHERENT_GT_DEBUGGER_URL` uses `host.docker.internal` because the server runs inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio mode and defaults to 50 minutes; set it to `0` to disable automatic shutdown.
+`COHERENT_GT_DEBUGGER_URL` uses `host.docker.internal` because the server runs inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio and shared HTTP modes and defaults to 50 minutes; set it to `0` to disable automatic shutdown.
 
 ## Tools
 

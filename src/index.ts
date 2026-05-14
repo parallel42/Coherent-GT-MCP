@@ -32,12 +32,36 @@ async function main(): Promise<void> {
 async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<void> {
   const sharedState = createMcpSharedState(config);
   const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: ReturnType<typeof createMcpServer> }>();
+  let httpServerClosed = false;
+
+  const shutdown = async (): Promise<void> => {
+    if (httpServerClosed) {
+      return;
+    }
+
+    httpServerClosed = true;
+    idleShutdown.clear();
+    for (const { server } of sessions.values()) {
+      await server.close();
+    }
+    sessions.clear();
+    sharedState.debugSessions.stopAll();
+    sharedState.profilingSessions.stopAll();
+    httpServer.close();
+  };
+
+  const idleShutdown = createIdleShutdown(config.idleTimeoutMs, async () => {
+    console.error(`coherent-gt-mcp HTTP server exiting after ${config.idleTimeoutMs}ms without requests`);
+    await shutdown();
+    process.exit(0);
+  });
 
   const httpServer = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
 
       if (url.pathname === "/health" && req.method === "GET") {
+        idleShutdown.reset();
         writeJson(res, 200, {
           ok: true,
           transport: "http",
@@ -51,6 +75,8 @@ async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<voi
         writeJson(res, 404, { error: "Not found" });
         return;
       }
+
+      idleShutdown.reset();
 
       if (req.method === "OPTIONS") {
         writeCorsHeaders(res);
@@ -76,7 +102,8 @@ async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<voi
         });
         const server = createMcpServer(config, {
           state: sharedState,
-          enableIdleShutdown: false
+          enableIdleShutdown: false,
+          onActivity: idleShutdown.reset
         });
 
         transport.onclose = () => {
@@ -115,16 +142,6 @@ async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<voi
     });
   });
 
-  const shutdown = async (): Promise<void> => {
-    for (const { server } of sessions.values()) {
-      await server.close();
-    }
-    sessions.clear();
-    sharedState.debugSessions.stopAll();
-    sharedState.profilingSessions.stopAll();
-    httpServer.close();
-  };
-
   process.on("SIGINT", () => {
     shutdown()
       .catch((error) => console.error(error instanceof Error ? error.stack ?? error.message : error))
@@ -135,6 +152,35 @@ async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<voi
       .catch((error) => console.error(error instanceof Error ? error.stack ?? error.message : error))
       .finally(() => process.exit(0));
   });
+}
+
+function createIdleShutdown(timeoutMs: number, onIdle: () => Promise<void>): { reset: () => void; clear: () => void } {
+  let timer: NodeJS.Timeout | undefined;
+
+  const clear = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+
+  const reset = (): void => {
+    clear();
+
+    if (timeoutMs === 0) {
+      return;
+    }
+
+    timer = setTimeout(() => {
+      onIdle().catch((error) => {
+        console.error(error instanceof Error ? error.stack ?? error.message : error);
+        process.exit(1);
+      });
+    }, timeoutMs);
+  };
+
+  reset();
+  return { reset, clear };
 }
 
 function getExistingSession(

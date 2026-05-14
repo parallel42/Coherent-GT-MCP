@@ -98,7 +98,7 @@ MCP stdio client configurations should not set Docker `--name`. Stdio clients la
 Run one shared Docker container:
 
 ```powershell
-docker run -d --rm `
+docker run -d `
   --name coherent-gt-mcp-shared `
   -p 3333:3333 `
   -e COHERENT_GT_TRANSPORT=http `
@@ -125,6 +125,12 @@ Stop the shared server:
 
 ```powershell
 docker stop coherent-gt-mcp-shared
+```
+
+If the shared server exits after being idle, start the same named container again:
+
+```powershell
+docker start coherent-gt-mcp-shared
 ```
 
 ### Stdio Per Client
@@ -175,7 +181,7 @@ Restart the MCP client after changing configuration or pulling a newer image.
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` | Timeout for debugger HTTP requests such as `/pagelist.json`. |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` | Timeout for WebKit Inspector WebSocket commands. |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` | Maximum JSON text payload size returned through MCP before truncation metadata is emitted. |
-| `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` | Stdio idle shutdown timer. Set to `0` to disable automatic shutdown. |
+| `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` | Idle shutdown timer for stdio and shared HTTP modes. Set to `0` to disable automatic shutdown. |
 | `COHERENT_GT_HTTP_HOST` | `0.0.0.0` | HTTP bind host when `COHERENT_GT_TRANSPORT=http`. |
 | `COHERENT_GT_HTTP_PORT` | `3333` | HTTP bind port when `COHERENT_GT_TRANSPORT=http`. |
 | `COHERENT_GT_HTTP_PATH` | `/mcp` | Streamable HTTP MCP endpoint path. |
@@ -615,7 +621,7 @@ Use the server only with local development targets you control. Treat MCP client
 - If views are missing, open or reload the relevant MSFS panel and call `coherentgt_list_views` again.
 - If native CSS/DOM/resource tools fail, retry with `coherentgt_inspector_command` to check whether that WebInspector domain is supported by the target Coherent build.
 - If persistent debugger tools report no active session, call `coherentgt_debug_start` for that `pageId` first.
-- If a stdio container exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
+- If a stdio or shared HTTP container exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
 - If HTTP clients cannot connect, verify the shared container is running and `Invoke-RestMethod http://127.0.0.1:3333/health` succeeds.
 
 ## Current Boundaries
