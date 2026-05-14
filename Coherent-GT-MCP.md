@@ -7,7 +7,7 @@ The first version will use the documented/observable debugger HTTP and WebKit In
 
 - Canonical repository name is `Coherent-GT-MCP`.
 - Use `coherent-gt-mcp` for lower-case Docker image/container names and MCP config examples.
-- Coherent debugger service is reachable at `http://127.0.0.1:19999`.
+- With MSFS running, Coherent debugger service is reachable at `http://127.0.0.1:19999`.
 - `/pagelist.json` returns `{ id, title, url, inspectorUrl }`.
 - Inspector WebSocket URL is `ws://<host>/devtools/page/<pageId>`.
 - Docker Desktop is the only normal user dependency; container default target should be `http://host.docker.internal:19999`.
@@ -68,9 +68,9 @@ Document that users need:
 
 - Windows with Docker Desktop running Linux containers.
 - A stdio-capable MCP client or agent.
-- Coherent GT/MSFS debugger service enabled and reachable on the host at `http://127.0.0.1:19999/pagelist.json`.
+- MSFS running, with the Coherent debugger endpoint available on the host at `http://127.0.0.1:19999/pagelist.json`.
 
-Document that normal use does not require Git, GitHub CLI, Node.js, npm, or a source checkout.
+Keep the README user-focused. Do not list Git, GitHub CLI, Node.js, npm, or source checkout steps in the normal install flow.
 
 Include the Docker Desktop PowerShell install command:
 
@@ -84,7 +84,7 @@ Tell users to restart PowerShell, start Docker Desktop, and verify Docker:
 docker version
 ```
 
-Tell users to enable the Coherent GT/MSFS debugger or developer module in the simulator/add-on environment and verify it from the host:
+Tell users to verify the endpoint with MSFS running:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
@@ -98,7 +98,7 @@ Normal install is just pulling the published image:
 docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
-Source builds are optional and should work without Git by downloading the GitHub source archive and building with Docker.
+Keep source-build and local-development details out of the README unless they become necessary for users.
 
 ## Runtime Defaults
 Default environment:
@@ -248,16 +248,13 @@ CMD ["node", "dist/index.js"]
 Document:
 
 - What the server does.
-- Requirements and PowerShell install/verification commands for Docker Desktop and the Coherent GT/MSFS debugger endpoint.
-- State clearly that normal users do not need Git, GitHub CLI, Node.js, npm, or a source checkout.
-- Requirement: Coherent GT debugger/developer module must be enabled and reachable.
+- Requirements and PowerShell install/verification commands for Docker Desktop and the MSFS Coherent debugger endpoint.
 - Default MSFS/Coherent URL: `http://host.docker.internal:19999` in Docker.
 - How to install:
   - `docker pull ghcr.io/parallel42/coherent-gt-mcp:latest`
 - How to run with MCP stdio:
   - `docker run --rm -i -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 ghcr.io/parallel42/coherent-gt-mcp:latest`
 - Example MCP client config using Docker command.
-- Optional source build path using a GitHub source archive instead of Git.
 - Security warning: tools can evaluate JS, click UI, trigger `engine` events, reload, and navigate live views.
 - Troubleshooting:
   - Test host endpoint: `http://127.0.0.1:19999/pagelist.json`
@@ -276,7 +273,7 @@ Unit tests:
 
 Manual acceptance tests:
 
-1. Start MSFS/Coherent debugger service.
+1. Start MSFS.
 2. Confirm host can open `http://127.0.0.1:19999/pagelist.json`.
 3. Pull Docker image.
 4. Run MCP Inspector or a local MCP client against the Docker stdio command.
@@ -302,7 +299,7 @@ If binary inspection becomes necessary, document findings in `docs/protocol-note
 
 ## Assumptions
 - The first implementation is Dockerized stdio MCP only.
-- Normal use should not require Git, GitHub CLI, Node.js, npm, or a source checkout.
+- The README should stay focused on the published Docker image path.
 - Full-control tools are desired, including JS eval, event triggering, clicking, style mutation, reload, and navigation.
 - Coherent debugger target default is `http://host.docker.internal:19999`.
 - No native C++ bridge is included in v1.
