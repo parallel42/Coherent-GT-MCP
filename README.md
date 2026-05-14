@@ -1,4 +1,4 @@
-# p42-coherentgt-mcp
+# CoherentGT MCP
 
 Dockerized stdio MCP server for inspecting and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
 
