@@ -95,6 +95,18 @@ MCP stdio client configurations should not set Docker `--name`. Stdio clients la
 
 ### Shared HTTP Server
 
+Codex should use the launcher/proxy script so every session uses one shared Docker MCP instance without manually starting the container first:
+
+```toml
+[mcp_servers.p42-coherentgt-mcp]
+command = "node"
+args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\scripts\codex-shared-mcp-proxy.mjs']
+```
+
+The proxy creates or starts the named `coherent-gt-mcp-shared` Docker container, connects to `http://127.0.0.1:3333/mcp`, and forwards Codex MCP traffic to that shared instance. The shared container exits after `COHERENT_GT_IDLE_TIMEOUT_MS` without requests and will be started again automatically by the next Codex session or tool call.
+
+Manual shared-container command, if needed:
+
 Run one shared Docker container:
 
 ```powershell
