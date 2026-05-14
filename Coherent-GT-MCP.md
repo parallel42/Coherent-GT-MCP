@@ -4,14 +4,14 @@
 
 CoherentGT MCP is a Dockerized TypeScript MCP server for inspecting, debugging, and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
 
-The project exposes a stdio MCP server that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, and run persistent debugger sessions with breakpoints and call-frame inspection. It uses documented and observable debugger HTTP/WebKit Inspector endpoints only; proprietary binaries and extracted source are not part of the normal workflow.
+The project exposes a stdio MCP server that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, and run persistent debugger sessions with breakpoints and call-frame inspection.
 
 Canonical names:
 
 - Repository: `Coherent-GT-MCP`
 - Package/server: `coherent-gt-mcp`
 - Docker image: `ghcr.io/parallel42/coherent-gt-mcp:latest`
-- Container examples: `coherent-gt-mcp`
+- Container examples: unnamed MCP stdio containers; use a fixed name only for manual debugging.
 
 References:
 
@@ -71,10 +71,11 @@ Run command used by MCP clients:
 
 ```powershell
 docker run --rm -i `
-  --name coherent-gt-mcp `
   -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
   ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
+
+MCP client configurations should not set Docker `--name`. Clients launch the server as a stdio subprocess and may start it repeatedly across app restarts, CLI sessions, and retries. A fixed container name can leave future launches blocked by Docker's name uniqueness check if a previous process is still running or did not exit cleanly.
 
 ## MCP Client Configuration
 
@@ -88,8 +89,6 @@ JSON clients:
       "args": [
         "run",
         "--rm",
-        "--name",
-        "coherent-gt-mcp",
         "-i",
         "-e",
         "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
@@ -108,8 +107,6 @@ command = "docker"
 args = [
   "run",
   "--rm",
-  "--name",
-  "coherent-gt-mcp",
   "-i",
   "-e",
   "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
@@ -526,18 +523,6 @@ Use the server only with local development targets you control. Treat MCP client
 - If native CSS/DOM/resource tools fail, retry with `coherentgt_inspector_command` to check whether that WebInspector domain is supported by the target Coherent build.
 - If persistent debugger tools report no active session, call `coherentgt_debug_start` for that `pageId` first.
 - If the container exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
-
-## Reverse Engineering Policy
-
-Use endpoint discovery and WebKit Inspector protocol behavior first.
-
-Binary inspection is only appropriate if:
-
-- `/pagelist.json` and `/devtools/page/<id>` are insufficient.
-- Protocol methods differ from WebKit Inspector expectations.
-- Hidden endpoints are required for a documented debugging workflow.
-
-If binary inspection becomes necessary, document findings in `docs/protocol-notes.md` without committing proprietary binaries or extracted copyrighted source.
 
 ## Current Boundaries
 

@@ -5,7 +5,7 @@ Dockerized stdio MCP server for inspecting and controlling live Coherent GT/MSFS
 - Host debugger: `http://127.0.0.1:19999/pagelist.json`
 - Docker debugger URL: `http://host.docker.internal:19999`
 - Transport: MCP stdio, no exposed Docker ports
-- Scope: debugger HTTP + WebKit Inspector endpoints only; no binary decompilation
+- Scope: debugger HTTP + WebKit Inspector endpoints
 
 ## Quick Start
 
@@ -49,8 +49,6 @@ JSON clients:
       "args": [
         "run",
         "--rm",
-        "--name",
-        "coherent-gt-mcp",
         "-i",
         "-e",
         "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
@@ -69,8 +67,6 @@ command = "docker"
 args = [
   "run",
   "--rm",
-  "--name",
-  "coherent-gt-mcp",
   "-i",
   "-e",
   "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
@@ -79,6 +75,8 @@ args = [
 ```
 
 Restart the agent, then call `coherentgt_health` and `coherentgt_list_views`.
+
+Do not set a fixed Docker `--name` in MCP client configurations. MCP clients start the server as a stdio subprocess, and a named container can block future agent starts if a previous process is still running or did not shut down cleanly. Use `--name` only for one-off manual debugging commands where you also manage container cleanup yourself.
 
 ## Update
 
