@@ -9,7 +9,7 @@ Dockerized stdio MCP server for inspecting and controlling live Coherent GT/MSFS
 
 ## Quick Start
 
-1. Start Docker Desktop.
+### 1. Start Docker Desktop
 
 If Docker is not installed:
 
@@ -23,19 +23,21 @@ Verify Docker:
 docker version
 ```
 
-2. Start MSFS and verify the Coherent debugger endpoint:
+### 2. Start MSFS
+
+Verify the Coherent debugger endpoint:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
 ```
 
-3. Pull the image:
+### 3. Pull the Image
 
 ```powershell
 docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
 ```
 
-4. Add the MCP server to your agent config.
+### 4. Add the MCP Server
 
 JSON clients:
 
