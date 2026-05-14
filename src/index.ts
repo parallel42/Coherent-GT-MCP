@@ -20,6 +20,7 @@ async function main(): Promise<void> {
     state,
     onIdle: async () => {
       state.debugSessions.stopAll();
+      state.profilingSessions.stopAll();
       console.error(`coherent-gt-mcp exiting after ${config.idleTimeoutMs}ms without tool calls`);
       await server.close();
       process.exit(0);
@@ -120,6 +121,7 @@ async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<voi
     }
     sessions.clear();
     sharedState.debugSessions.stopAll();
+    sharedState.profilingSessions.stopAll();
     httpServer.close();
   };
 

@@ -4,7 +4,7 @@
 
 CoherentGT MCP is a Dockerized TypeScript MCP server for inspecting, debugging, and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
 
-The project exposes stdio and Streamable HTTP MCP transports that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, and run persistent debugger sessions with breakpoints and call-frame inspection.
+The project exposes stdio and Streamable HTTP MCP transports that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, run persistent debugger sessions with breakpoints and call-frame inspection, and capture legacy WebKit profiling telemetry.
 
 Canonical names:
 
@@ -113,7 +113,7 @@ Codex TOML:
 url = "http://127.0.0.1:3333/mcp"
 ```
 
-All Codex sessions using that URL connect to the same container. Persistent debugger sessions, tracked scripts, and MCP-created breakpoints are shared through the long-running process.
+All Codex sessions using that URL connect to the same container. Persistent debugger/profiling sessions, tracked scripts, retained profiling payloads, and MCP-created breakpoints are shared through the long-running process.
 
 Health check:
 
@@ -200,6 +200,9 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 | Script analysis | `coherentgt_debug_list_scripts`, `coherentgt_debug_get_script_source`, `coherentgt_debug_search_script`, `coherentgt_debug_search_all_scripts` | Track parsed scripts, retrieve script source, and search one or many scripts. |
 | Breakpoints | `coherentgt_debug_set_breakpoint_by_url`, `coherentgt_debug_set_breakpoint`, `coherentgt_debug_remove_breakpoint`, `coherentgt_debug_list_breakpoints`, `coherentgt_debug_set_event_listener_breakpoint`, `coherentgt_debug_set_xhr_breakpoint`, `coherentgt_debug_set_dom_breakpoint` | Manage URL, script-location, event-listener, XHR/fetch, and DOM breakpoints. |
 | Pause and stepping | `coherentgt_debug_pause`, `coherentgt_debug_resume`, `coherentgt_debug_step_over`, `coherentgt_debug_step_into`, `coherentgt_debug_step_out`, `coherentgt_debug_paused`, `coherentgt_debug_evaluate_on_call_frame` | Pause/resume JavaScript, step through paused code, inspect paused state, and evaluate in call frames. |
+| Profiling and telemetry | `coherentgt_profile_start`, `coherentgt_profile_stop`, `coherentgt_profile_status`, `coherentgt_profile_events`, `coherentgt_profile_raw`, `coherentgt_capture_all_start`, `coherentgt_capture_all_stop` | Capture legacy Timeline, ScriptProfiler, Network, Heap, and LayerTree events with compact summaries and raw payload lookup. |
+| Focused profiling | `coherentgt_script_profile_start`, `coherentgt_script_profile_stop`, `coherentgt_timeline_start`, `coherentgt_timeline_stop`, `coherentgt_network_capture_start`, `coherentgt_network_capture_stop`, `coherentgt_heap_snapshot`, `coherentgt_heap_start_tracking`, `coherentgt_heap_stop_tracking`, `coherentgt_heap_gc` | Run targeted captures for CPU/script samples, frame/layout/paint timelines, network waterfalls, and heap snapshots/tracking. |
+| Visual diagnostics | `coherentgt_layer_tree`, `coherentgt_compositing_reasons`, `coherentgt_set_paint_rects_visible`, `coherentgt_set_compositing_borders_visible` | Inspect layer/compositing data and toggle paint/compositing overlays. |
 
 ## Tool Reference
 
@@ -305,6 +308,41 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Input: `{ pageId: number, url: string }`
   - Uses `Page.navigate`.
   - High-risk mutating tool because it navigates a live view.
+
+### Profiling and Telemetry
+
+Profiling keeps a WebInspector socket open per `pageId`, buffers legacy WebKit Inspector telemetry events, and stores large heap/script payloads behind `rawId` values.
+
+- `coherentgt_profile_start`
+  - Input: `{ pageId: number, instruments?: ("timeline"|"script"|"network"|"heap"|"layerTree")[], reload?: boolean, ignoreCache?: boolean, maxCallStackDepth?: number, timelineInstruments?: ("Timeline"|"ScriptProfiler"|"Memory"|"Heap")[] }`
+  - Starts a persistent capture. Defaults to timeline, script, and network.
+  - If `reload` is true, calls `Page.reload` after capture setup.
+
+- `coherentgt_profile_stop`
+  - Input: `{ pageId: number, instruments?: ("timeline"|"script"|"network"|"heap"|"layerTree")[] }`
+  - Stops selected instruments, or all active instruments when omitted.
+  - Output includes compact network waterfall, timeline, script, heap, and layer summaries.
+
+- `coherentgt_capture_all_start` / `coherentgt_capture_all_stop`
+  - Convenience flow for timeline, script, network, heap, and layer tree capture.
+
+- `coherentgt_profile_status`, `coherentgt_profile_events`, `coherentgt_profile_raw`
+  - Inspect profiling sessions, buffered event metadata, and retained raw payloads by `rawId`.
+
+- `coherentgt_script_profile_start`, `coherentgt_script_profile_stop`
+  - Focused legacy `ScriptProfiler.startTracking` / `stopTracking`.
+
+- `coherentgt_timeline_start`, `coherentgt_timeline_stop`
+  - Focused legacy `Timeline.setInstruments`, `Timeline.start`, and `Timeline.stop`.
+
+- `coherentgt_network_capture_start`, `coherentgt_network_capture_stop`
+  - Focused `Network.enable` capture with request waterfall summaries.
+
+- `coherentgt_heap_snapshot`, `coherentgt_heap_start_tracking`, `coherentgt_heap_stop_tracking`, `coherentgt_heap_gc`
+  - Legacy heap snapshot/tracking/GC tools. Snapshot responses return metadata and a `rawId`; raw snapshot data is read with `coherentgt_profile_raw`.
+
+- `coherentgt_layer_tree`, `coherentgt_compositing_reasons`, `coherentgt_set_paint_rects_visible`, `coherentgt_set_compositing_borders_visible`
+  - Layer/compositing inspection and visual diagnostics based on `LayerTree` and `Page` overlay commands.
 
 ### Persistent Debugging
 
@@ -560,6 +598,7 @@ This project is a local development and debugging tool. Several tools can modify
 - `coherentgt_eval_js` can run arbitrary JavaScript.
 - `coherentgt_trigger_event` and `coherentgt_call_engine` can communicate with the Coherent engine bridge.
 - `coherentgt_click`, `coherentgt_set_style`, `coherentgt_reload_view`, and `coherentgt_navigate_view` mutate the active UI.
+- Profiling captures can reload views when `reload: true`, request heap GC, and toggle visual diagnostics.
 - Debug breakpoints, pause, resume, and stepping affect live JavaScript execution.
 
 Use the server only with local development targets you control. Treat MCP client access to this server as equivalent to debugger access to the running Coherent UI.

@@ -18,8 +18,10 @@ import {
 } from "./tools/native-inspector.js";
 import { coherentgtListViews } from "./tools/views.js";
 import {
+  captureAllStartInputSchema,
   callEngineInputSchema,
   clickInputSchema,
+  compositingReasonsInputSchema,
   debugDomBreakpointInputSchema,
   debugCommandInputSchema,
   debugEvaluateInputSchema,
@@ -41,11 +43,19 @@ import {
   getDocumentInputSchema,
   healthInputSchema,
   inspectorCommandInputSchema,
+  focusedProfileStartInputSchema,
+  layerTreeInputSchema,
   listViewsInputSchema,
   matchedStylesInputSchema,
   nativeDocumentInputSchema,
   navigateViewInputSchema,
   outerHtmlInputSchema,
+  profileEventsInputSchema,
+  profilePageInputSchema,
+  profileRawInputSchema,
+  profileStartInputSchema,
+  profileStatusInputSchema,
+  profileStopInputSchema,
   querySelectorInputSchema,
   reloadViewInputSchema,
   resourceContentInputSchema,
@@ -54,18 +64,22 @@ import {
   setStyleInputSchema,
   stylesheetTextInputSchema,
   stylesheetsInputSchema,
-  triggerEventInputSchema
+  timelineStartInputSchema,
+  triggerEventInputSchema,
+  visualOverlayInputSchema
 } from "./tools/schemas.js";
 import { buildSetStyleExpression } from "./tools/css.js";
 import { DebugSessionManager } from "./tools/debugger.js";
 import { buildGetDocumentExpression, buildQuerySelectorExpression } from "./tools/dom.js";
 import { buildClickExpression } from "./tools/events.js";
 import { jsonToolResult } from "./tools/result.js";
+import { ProfilingSessionManager } from "./tools/profiling.js";
 import { buildEngineCallExpression, buildEngineTriggerExpression, runtimeEvaluateParams } from "./tools/runtime.js";
 
 export type McpSharedState = {
   debuggerClient: CoherentDebuggerClient;
   debugSessions: DebugSessionManager;
+  profilingSessions: ProfilingSessionManager;
 };
 
 export type CreateMcpServerOptions = {
@@ -80,6 +94,10 @@ export function createMcpSharedState(config: AppConfig): McpSharedState {
     debugSessions: new DebugSessionManager({
       debuggerUrl: config.debuggerUrl,
       timeoutMs: config.wsTimeoutMs
+    }),
+    profilingSessions: new ProfilingSessionManager({
+      debuggerUrl: config.debuggerUrl,
+      timeoutMs: config.wsTimeoutMs
     })
   };
 }
@@ -90,7 +108,7 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
     version: "0.1.0"
   });
 
-  const { debuggerClient, debugSessions } = options.state ?? createMcpSharedState(config);
+  const { debuggerClient, debugSessions, profilingSessions } = options.state ?? createMcpSharedState(config);
   const idleShutdown = createIdleShutdown(config.idleTimeoutMs, async () => {
     await options.onIdle?.();
   }, options.enableIdleShutdown ?? true);
@@ -535,6 +553,284 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
           args
         )
       )
+  );
+
+  server.registerTool(
+    "coherentgt_profile_start",
+    {
+      title: "Start Profiling",
+      description: "Start a persistent legacy WebInspector profiling capture for selected instruments.",
+      inputSchema: profileStartInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profileStartInputSchema>) =>
+      run(() =>
+        profilingSessions.start(args.pageId, {
+          instruments: args.instruments,
+          reload: args.reload,
+          ignoreCache: args.ignoreCache,
+          maxCallStackDepth: args.maxCallStackDepth,
+          timelineInstruments: args.timelineInstruments
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_profile_stop",
+    {
+      title: "Stop Profiling",
+      description: "Stop active profiling instruments and return compact capture summaries.",
+      inputSchema: profileStopInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profileStopInputSchema>) => run(() => profilingSessions.stop(args.pageId, args.instruments))
+  );
+
+  server.registerTool(
+    "coherentgt_profile_status",
+    {
+      title: "Profiling Status",
+      description: "Show one profiling session status or all active profiling sessions.",
+      inputSchema: profileStatusInputSchema
+    },
+    async (args: z.infer<typeof profileStatusInputSchema>) => run(() => profilingSessions.status(args.pageId))
+  );
+
+  server.registerTool(
+    "coherentgt_profile_events",
+    {
+      title: "Profiling Events",
+      description: "Read buffered profiling events. Params are omitted by default; use includeParams for raw event payloads.",
+      inputSchema: profileEventsInputSchema
+    },
+    async (args: z.infer<typeof profileEventsInputSchema>) => run(() => profilingSessions.events(args.pageId, args))
+  );
+
+  server.registerTool(
+    "coherentgt_profile_raw",
+    {
+      title: "Profiling Raw Payload",
+      description: "Read a retained raw profiling payload by rawId.",
+      inputSchema: profileRawInputSchema
+    },
+    async (args: z.infer<typeof profileRawInputSchema>) => run(() => profilingSessions.raw(args.pageId, args.rawId))
+  );
+
+  server.registerTool(
+    "coherentgt_capture_all_start",
+    {
+      title: "Start Full Capture",
+      description: "Start all supported profiling instruments: timeline, script, network, heap, and layer tree.",
+      inputSchema: captureAllStartInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof captureAllStartInputSchema>) =>
+      run(() =>
+        profilingSessions.startAll(args.pageId, {
+          reload: args.reload,
+          ignoreCache: args.ignoreCache,
+          maxCallStackDepth: args.maxCallStackDepth,
+          timelineInstruments: args.timelineInstruments
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_capture_all_stop",
+    {
+      title: "Stop Full Capture",
+      description: "Stop all active profiling instruments and return compact capture summaries.",
+      inputSchema: profilePageInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profilePageInputSchema>) => run(() => profilingSessions.stop(args.pageId))
+  );
+
+  server.registerTool(
+    "coherentgt_script_profile_start",
+    {
+      title: "Start Script Profiling",
+      description: "Start legacy ScriptProfiler tracking with samples.",
+      inputSchema: focusedProfileStartInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof focusedProfileStartInputSchema>) =>
+      run(() =>
+        profilingSessions.start(args.pageId, {
+          instruments: ["script"],
+          reload: args.reload,
+          ignoreCache: args.ignoreCache,
+          maxCallStackDepth: args.maxCallStackDepth
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_script_profile_stop",
+    {
+      title: "Stop Script Profiling",
+      description: "Stop legacy ScriptProfiler tracking and summarize script samples.",
+      inputSchema: profilePageInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profilePageInputSchema>) => run(() => profilingSessions.stop(args.pageId, ["script"]))
+  );
+
+  server.registerTool(
+    "coherentgt_timeline_start",
+    {
+      title: "Start Timeline Capture",
+      description: "Start legacy Timeline capture for frame, script, layout, paint, memory, and heap allocation records.",
+      inputSchema: timelineStartInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof timelineStartInputSchema>) =>
+      run(() =>
+        profilingSessions.start(args.pageId, {
+          instruments: ["timeline"],
+          reload: args.reload,
+          ignoreCache: args.ignoreCache,
+          maxCallStackDepth: args.maxCallStackDepth,
+          timelineInstruments: args.timelineInstruments
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_timeline_stop",
+    {
+      title: "Stop Timeline Capture",
+      description: "Stop legacy Timeline capture and summarize frame/script/layout/paint records.",
+      inputSchema: profilePageInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profilePageInputSchema>) => run(() => profilingSessions.stop(args.pageId, ["timeline"]))
+  );
+
+  server.registerTool(
+    "coherentgt_network_capture_start",
+    {
+      title: "Start Network Capture",
+      description: "Start Network event capture for request waterfall summaries.",
+      inputSchema: focusedProfileStartInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof focusedProfileStartInputSchema>) =>
+      run(() =>
+        profilingSessions.start(args.pageId, {
+          instruments: ["network"],
+          reload: args.reload,
+          ignoreCache: args.ignoreCache,
+          maxCallStackDepth: args.maxCallStackDepth
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_network_capture_stop",
+    {
+      title: "Stop Network Capture",
+      description: "Stop Network event capture and summarize request waterfall timing.",
+      inputSchema: profilePageInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profilePageInputSchema>) => run(() => profilingSessions.stop(args.pageId, ["network"]))
+  );
+
+  server.registerTool(
+    "coherentgt_heap_snapshot",
+    {
+      title: "Heap Snapshot",
+      description: "Take a legacy Heap.snapshot and return compact snapshot metadata plus rawId.",
+      inputSchema: profilePageInputSchema
+    },
+    async (args: z.infer<typeof profilePageInputSchema>) => run(() => profilingSessions.heapSnapshot(args.pageId))
+  );
+
+  server.registerTool(
+    "coherentgt_heap_start_tracking",
+    {
+      title: "Start Heap Tracking",
+      description: "Start legacy Heap allocation tracking.",
+      inputSchema: focusedProfileStartInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof focusedProfileStartInputSchema>) =>
+      run(() =>
+        profilingSessions.start(args.pageId, {
+          instruments: ["heap"],
+          reload: args.reload,
+          ignoreCache: args.ignoreCache,
+          maxCallStackDepth: args.maxCallStackDepth
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_heap_stop_tracking",
+    {
+      title: "Stop Heap Tracking",
+      description: "Stop legacy Heap allocation tracking and summarize heap snapshots.",
+      inputSchema: profilePageInputSchema,
+      annotations: { readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profilePageInputSchema>) => run(() => profilingSessions.stop(args.pageId, ["heap"]))
+  );
+
+  server.registerTool(
+    "coherentgt_heap_gc",
+    {
+      title: "Collect Garbage",
+      description: "Mutating: request a legacy Heap.gc in the live Coherent view.",
+      inputSchema: profilePageInputSchema,
+      annotations: { destructiveHint: true, readOnlyHint: false }
+    },
+    async (args: z.infer<typeof profilePageInputSchema>) => run(() => profilingSessions.heapGc(args.pageId))
+  );
+
+  server.registerTool(
+    "coherentgt_layer_tree",
+    {
+      title: "Layer Tree",
+      description: "Enable LayerTree and optionally read layers for a nodeId or selector.",
+      inputSchema: layerTreeInputSchema
+    },
+    async (args: z.infer<typeof layerTreeInputSchema>) => run(() => profilingSessions.layerTree(args.pageId, args))
+  );
+
+  server.registerTool(
+    "coherentgt_compositing_reasons",
+    {
+      title: "Compositing Reasons",
+      description: "Read compositing reasons for a legacy LayerTree layer id.",
+      inputSchema: compositingReasonsInputSchema
+    },
+    async (args: z.infer<typeof compositingReasonsInputSchema>) =>
+      run(() => profilingSessions.compositingReasons(args.pageId, args.layerId))
+  );
+
+  server.registerTool(
+    "coherentgt_set_paint_rects_visible",
+    {
+      title: "Show Paint Rects",
+      description: "Mutating: toggle WebInspector paint rect overlays in the live Coherent view.",
+      inputSchema: visualOverlayInputSchema,
+      annotations: { destructiveHint: true, readOnlyHint: false }
+    },
+    async (args: z.infer<typeof visualOverlayInputSchema>) =>
+      run(() => profilingSessions.setPaintRectsVisible(args.pageId, args.visible))
+  );
+
+  server.registerTool(
+    "coherentgt_set_compositing_borders_visible",
+    {
+      title: "Show Compositing Borders",
+      description: "Mutating: toggle WebInspector compositing border overlays in the live Coherent view.",
+      inputSchema: visualOverlayInputSchema,
+      annotations: { destructiveHint: true, readOnlyHint: false }
+    },
+    async (args: z.infer<typeof visualOverlayInputSchema>) =>
+      run(() => profilingSessions.setCompositingBordersVisible(args.pageId, args.visible))
   );
 
   server.registerTool(

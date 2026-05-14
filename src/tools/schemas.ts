@@ -289,3 +289,104 @@ export const debugDomBreakpointInputSchema = z
     type: z.enum(["subtree-modified", "attribute-modified", "node-removed"])
   })
   .strict();
+
+export const profileInstrumentSchema = z.enum(["timeline", "script", "network", "heap", "layerTree"]);
+export const timelineInstrumentSchema = z.enum(["Timeline", "ScriptProfiler", "Memory", "Heap"]);
+
+export const profileStartInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    instruments: z.array(profileInstrumentSchema).min(1).optional().default(["timeline", "script", "network"]),
+    reload: z.boolean().optional().default(false),
+    ignoreCache: z.boolean().optional().default(false),
+    maxCallStackDepth: z.number().int().positive().max(1024).optional().default(128),
+    timelineInstruments: z.array(timelineInstrumentSchema).min(1).optional()
+  })
+  .strict();
+
+export const captureAllStartInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    reload: z.boolean().optional().default(false),
+    ignoreCache: z.boolean().optional().default(false),
+    maxCallStackDepth: z.number().int().positive().max(1024).optional().default(128),
+    timelineInstruments: z.array(timelineInstrumentSchema).min(1).optional()
+  })
+  .strict();
+
+export const profileStopInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    instruments: z.array(profileInstrumentSchema).min(1).optional()
+  })
+  .strict();
+
+export const profileStatusInputSchema = z
+  .object({
+    pageId: pageIdSchema.optional()
+  })
+  .strict();
+
+export const profileEventsInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    sinceSequence: z.number().int().nonnegative().optional(),
+    maxEvents: z.number().int().positive().max(1000).optional().default(100),
+    eventTypes: z.array(z.string().min(1)).optional(),
+    includeParams: z.boolean().optional().default(false)
+  })
+  .strict();
+
+export const profileRawInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    rawId: z.string().min(1)
+  })
+  .strict();
+
+export const focusedProfileStartInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    reload: z.boolean().optional().default(false),
+    ignoreCache: z.boolean().optional().default(false),
+    maxCallStackDepth: z.number().int().positive().max(1024).optional().default(128)
+  })
+  .strict();
+
+export const timelineStartInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    reload: z.boolean().optional().default(false),
+    ignoreCache: z.boolean().optional().default(false),
+    maxCallStackDepth: z.number().int().positive().max(1024).optional().default(128),
+    timelineInstruments: z.array(timelineInstrumentSchema).min(1).optional()
+  })
+  .strict();
+
+export const profilePageInputSchema = z
+  .object({
+    pageId: pageIdSchema
+  })
+  .strict();
+
+export const layerTreeInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    nodeId: z.number().int().positive().optional(),
+    selector: z.string().min(1).optional()
+  })
+  .strict();
+
+export const compositingReasonsInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    layerId: z.string().min(1)
+  })
+  .strict();
+
+export const visualOverlayInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    visible: z.boolean()
+  })
+  .strict();

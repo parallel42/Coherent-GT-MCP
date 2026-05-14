@@ -142,7 +142,18 @@ Restart the agent after pulling the new image.
 - Runtime/control: JavaScript eval, engine calls/events, clicks, reloads, and navigation
 - DOM/CSS/resources: document, selector, style, stylesheet, resource, and native inspector helpers
 - Debugger: persistent debug sessions, script search, breakpoints, pause/resume, stepping, and call-frame evaluation
+- Profiling: legacy timeline/script/network/heap/layer captures, compact summaries, raw payload lookup, and paint/compositing overlays
+
+Quick profiling flow:
+
+```text
+coherentgt_capture_all_start({ "pageId": 31, "reload": true })
+coherentgt_capture_all_stop({ "pageId": 31 })
+coherentgt_profile_raw({ "pageId": 31, "rawId": "<rawId from summary>" })
+```
+
+Use focused tools such as `coherentgt_timeline_start`, `coherentgt_network_capture_start`, `coherentgt_heap_snapshot`, and `coherentgt_set_paint_rects_visible` when you only need one diagnostic surface.
 
 ## Security
 
-Tools can evaluate JS, click UI, trigger `engine` calls/events, reload, and navigate live views. Use only on local development targets you control.
+Tools can evaluate JS, click UI, trigger `engine` calls/events, reload, navigate, profile, and toggle diagnostic overlays in live views. Use only on local development targets you control.
