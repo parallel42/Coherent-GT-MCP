@@ -3,13 +3,15 @@ export type AppConfig = {
   requestTimeoutMs: number;
   wsTimeoutMs: number;
   maxTextBytes: number;
+  idleTimeoutMs: number;
 };
 
 const DEFAULTS: AppConfig = {
   debuggerUrl: "http://host.docker.internal:19999",
   requestTimeoutMs: 5000,
-  wsTimeoutMs: 10000,
-  maxTextBytes: 262144
+  wsTimeoutMs: 30000,
+  maxTextBytes: 262144,
+  idleTimeoutMs: 3000000
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -25,6 +27,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.COHERENT_GT_MAX_TEXT_BYTES,
       DEFAULTS.maxTextBytes,
       "COHERENT_GT_MAX_TEXT_BYTES"
+    ),
+    idleTimeoutMs: parseNonNegativeInt(
+      env.COHERENT_GT_IDLE_TIMEOUT_MS,
+      DEFAULTS.idleTimeoutMs,
+      "COHERENT_GT_IDLE_TIMEOUT_MS"
     )
   };
 }
@@ -45,6 +52,19 @@ function parsePositiveInt(value: string | undefined, fallback: number, name: str
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeInt(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
   }
 
   return parsed;

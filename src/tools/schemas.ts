@@ -251,6 +251,14 @@ export const debugPageInputSchema = z
   })
   .strict();
 
+export const debugCommandInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    method: z.string().min(1),
+    params: jsonObjectSchema.optional()
+  })
+  .strict();
+
 export const debugEvaluateInputSchema = z
   .object({
     pageId: pageIdSchema,

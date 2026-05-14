@@ -3,6 +3,7 @@ import { buildSetStyleExpression } from "../../src/tools/css.js";
 import { buildQuerySelectorExpression } from "../../src/tools/dom.js";
 import { buildClickExpression } from "../../src/tools/events.js";
 import { buildEngineCallExpression, buildEngineTriggerExpression } from "../../src/tools/runtime.js";
+import { jsonToolResult } from "../../src/tools/result.js";
 
 describe("generated JavaScript snippets", () => {
   it("escapes engine trigger arguments through JSON.stringify", () => {
@@ -49,5 +50,14 @@ describe("generated JavaScript snippets", () => {
       expect(snippet).not.toContain("Array.from");
       expect(snippet).not.toContain("...");
     }
+  });
+
+  it("keeps oversized JSON tool results parseable", () => {
+    const result = jsonToolResult({ value: "x".repeat(200) }, 50);
+    const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    expect(JSON.parse(text)).toMatchObject({
+      truncated: true,
+      maxTextBytes: 50
+    });
   });
 });

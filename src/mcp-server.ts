@@ -21,6 +21,7 @@ import {
   callEngineInputSchema,
   clickInputSchema,
   debugDomBreakpointInputSchema,
+  debugCommandInputSchema,
   debugEvaluateInputSchema,
   debugEventBreakpointInputSchema,
   debugEventsInputSchema,
@@ -73,8 +74,15 @@ export function createMcpServer(config: AppConfig): McpServer {
     debuggerUrl: config.debuggerUrl,
     timeoutMs: config.wsTimeoutMs
   });
+  const idleShutdown = createIdleShutdown(config.idleTimeoutMs, async () => {
+    debugSessions.stopAll();
+    console.error(`p42-coherentgt-mcp exiting after ${config.idleTimeoutMs}ms without tool calls`);
+    await server.close();
+    process.exit(0);
+  });
 
   const run = async (fn: () => Promise<unknown> | unknown): Promise<CallToolResult> => {
+    idleShutdown.reset();
     try {
       return jsonToolResult(await fn(), config.maxTextBytes);
     } catch (error) {
@@ -87,6 +95,8 @@ export function createMcpServer(config: AppConfig): McpServer {
           config.maxTextBytes
         )
       };
+    } finally {
+      idleShutdown.reset();
     }
   };
 
@@ -555,6 +565,17 @@ export function createMcpServer(config: AppConfig): McpServer {
   );
 
   server.registerTool(
+    "coherentgt_debug_command",
+    {
+      title: "Debug Session Command",
+      description: "Send a raw WebInspector command over the persistent debug session.",
+      inputSchema: debugCommandInputSchema
+    },
+    async (args: z.infer<typeof debugCommandInputSchema>) =>
+      run(() => debugSessions.command(args.pageId, args.method, args.params))
+  );
+
+  server.registerTool(
     "coherentgt_debug_paused",
     {
       title: "Paused State",
@@ -741,6 +762,31 @@ export function createMcpServer(config: AppConfig): McpServer {
   );
 
   return server;
+}
+
+function createIdleShutdown(timeoutMs: number, onIdle: () => Promise<void>): { reset: () => void } {
+  let timer: NodeJS.Timeout | undefined;
+
+  const reset = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+
+    if (timeoutMs === 0) {
+      return;
+    }
+
+    timer = setTimeout(() => {
+      onIdle().catch((error) => {
+        console.error(error instanceof Error ? error.stack ?? error.message : error);
+        process.exit(1);
+      });
+    }, timeoutMs);
+  };
+
+  reset();
+  return { reset };
 }
 
 function hasInspectorError(value: unknown): boolean {

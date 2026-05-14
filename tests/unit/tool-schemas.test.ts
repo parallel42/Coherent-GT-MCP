@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  debugSetBreakpointByUrlInputSchema,
+  debugStartInputSchema,
   evalJsInputSchema,
   inspectorCommandInputSchema,
   navigateViewInputSchema,
@@ -95,6 +97,30 @@ describe("tool schemas", () => {
     ).toEqual({
       pageId: 30,
       selector: "body"
+    });
+  });
+
+  it("accepts persistent debugger inputs", () => {
+    expect(
+      debugStartInputSchema.parse({
+        pageId: 30
+      })
+    ).toEqual({
+      pageId: 30,
+      pauseOnExceptions: "none"
+    });
+
+    expect(
+      debugSetBreakpointByUrlInputSchema.parse({
+        pageId: 30,
+        url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.js",
+        lineNumber: 0
+      })
+    ).toEqual({
+      pageId: 30,
+      url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.js",
+      lineNumber: 0,
+      columnNumber: 0
     });
   });
 });

@@ -28,6 +28,8 @@ JSON clients:
       "args": [
         "run",
         "--rm",
+        "--name",
+        "p42-coherentgt-mcp",
         "-i",
         "-e",
         "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
@@ -46,6 +48,8 @@ command = "docker"
 args = [
   "run",
   "--rm",
+  "--name",
+  "p42-coherentgt-mcp",
   "-i",
   "-e",
   "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
@@ -58,10 +62,12 @@ Restart the agent after changing MCP config.
 ## Manual Run
 
 ```powershell
-docker run --rm -i `
+docker run --rm --name p42-coherentgt-mcp -i `
   -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
   p42-coherentgt-mcp
 ```
+
+The fixed Docker name is intentional. Docker will reject a second concurrent MCP instance with the same name, which protects the Coherent debugger from stale parallel inspector sessions.
 
 ## Env
 
@@ -69,8 +75,11 @@ docker run --rm -i `
 | --- | --- |
 | `COHERENT_GT_DEBUGGER_URL` | `http://host.docker.internal:19999` |
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` |
-| `COHERENT_GT_WS_TIMEOUT_MS` | `10000` |
+| `COHERENT_GT_WS_TIMEOUT_MS` | `30000` |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` |
+| `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` |
+
+`COHERENT_GT_IDLE_TIMEOUT_MS` is the idle process watchdog. The default is 50 minutes. Set it to `0` to disable automatic shutdown.
 
 ## Tools
 

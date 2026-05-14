@@ -28,6 +28,16 @@ export class DebugSessionManager {
     return { pageId, stopped: true };
   }
 
+  stopAll(): unknown {
+    const stopped = [];
+    for (const [pageId, session] of this.sessions) {
+      session.close();
+      stopped.push(pageId);
+    }
+    this.sessions.clear();
+    return { stopped };
+  }
+
   status(pageId?: number | undefined): unknown {
     if (pageId !== undefined) {
       const session = this.sessions.get(pageId);
