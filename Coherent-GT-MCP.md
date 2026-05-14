@@ -1,11 +1,12 @@
-# p42-coherentgt-mcp
+# CoherentGT MCP
 
 ## Summary
-Create a new Git repository at `F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp` for a Dockerized TypeScript MCP server that controls live Coherent GT/MSFS UI views through the Coherent debugger service.
+Create a Dockerized TypeScript MCP server that controls live Coherent GT/MSFS UI views through the Coherent debugger service.
 
 The first version will use the documented/observable debugger HTTP and WebKit Inspector endpoints, not binary decompilation. Local inspection confirmed:
 
-- Existing repo naming favors `p42-*`.
+- Canonical repository name is `Coherent-GT-MCP`.
+- Use `coherent-gt-mcp` for lower-case Docker image/container names and MCP config examples.
 - Coherent debugger service is reachable at `http://127.0.0.1:19999`.
 - `/pagelist.json` returns `{ id, title, url, inspectorUrl }`.
 - Inspector WebSocket URL is `ws://<host>/devtools/page/<pageId>`.
@@ -21,7 +22,7 @@ References:
 Create:
 
 ```text
-p42-coherentgt-mcp/
+Coherent-GT-MCP/
   .dockerignore
   .gitignore
   Dockerfile
@@ -58,6 +59,59 @@ p42-coherentgt-mcp/
 
 Use npm, TypeScript, ESM, Node 20+.
 
+## Requirements
+Document that users need:
+
+- Windows with Docker Desktop running Linux containers.
+- Git for cloning the repository.
+- GitHub CLI for authentication if the repository requires access through GitHub.
+- A stdio-capable MCP client or agent.
+- Coherent GT/MSFS debugger service enabled and reachable on the host at `http://127.0.0.1:19999/pagelist.json`.
+- Optional local development only: Node.js 20+ and npm.
+
+Include PowerShell install commands:
+
+```powershell
+winget install --id Git.Git -e
+winget install --id GitHub.cli -e
+winget install --id Docker.DockerDesktop -e
+```
+
+For local development outside Docker, also include:
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS -e
+```
+
+Tell users to restart PowerShell, start Docker Desktop, and verify the installed tools:
+
+```powershell
+git --version
+gh --version
+docker version
+```
+
+If Node.js was installed for local development, verify it too:
+
+```powershell
+node --version
+npm --version
+```
+
+For GitHub authentication:
+
+```powershell
+gh auth login
+```
+
+Tell users to enable the Coherent GT/MSFS debugger or developer module in the simulator/add-on environment and verify it from the host:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
+```
+
+Docker containers must target `http://host.docker.internal:19999`, not `http://127.0.0.1:19999`.
+
 ## Runtime Defaults
 Default environment:
 
@@ -73,7 +127,7 @@ Docker command target:
 ```powershell
 docker run --rm -i `
   -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
-  p42-coherentgt-mcp
+  coherent-gt-mcp
 ```
 
 No Docker port exposure is needed for v1 because MCP transport is stdio.
@@ -170,7 +224,7 @@ Use `@modelcontextprotocol/sdk@1.29.0`, `zod`, `typescript`, and `tsx` for local
 - Cap large text outputs using `COHERENT_GT_MAX_TEXT_BYTES`.
 
 `index.ts`:
-- Create server named `p42-coherentgt-mcp`.
+- Create server named `coherent-gt-mcp`.
 - Connect with `StdioServerTransport`.
 - Log diagnostics only to stderr.
 
@@ -202,12 +256,13 @@ CMD ["node", "dist/index.js"]
 Document:
 
 - What the server does.
+- Requirements and PowerShell install/verification commands for Git, GitHub CLI, Docker Desktop, optional Node.js, and the Coherent GT/MSFS debugger endpoint.
 - Requirement: Coherent GT debugger/developer module must be enabled and reachable.
 - Default MSFS/Coherent URL: `http://host.docker.internal:19999` in Docker.
 - How to build:
-  - `docker build -t p42-coherentgt-mcp .`
+  - `docker build -t coherent-gt-mcp .`
 - How to run with MCP stdio:
-  - `docker run --rm -i -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 p42-coherentgt-mcp`
+  - `docker run --rm -i -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 coherent-gt-mcp`
 - Example MCP client config using Docker command.
 - Security warning: tools can evaluate JS, click UI, trigger `engine` events, reload, and navigate live views.
 - Troubleshooting:

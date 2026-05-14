@@ -7,13 +7,64 @@ Dockerized stdio MCP server for inspecting and controlling live Coherent GT/MSFS
 - Transport: MCP stdio, no exposed Docker ports
 - Scope: debugger HTTP + WebKit Inspector endpoints only; no binary decompilation
 
-## Build
+## Requirements
+
+- Windows with Docker Desktop running Linux containers.
+- Git for cloning the repository.
+- GitHub CLI for authentication if the repository requires access through GitHub.
+- A stdio-capable MCP client or agent.
+- Coherent GT/MSFS debugger service enabled and reachable on the host at `http://127.0.0.1:19999/pagelist.json`.
+- Optional local development only: Node.js 20+ and npm.
+
+Install the Windows tooling from PowerShell:
+
+```powershell
+winget install --id Git.Git -e
+winget install --id GitHub.cli -e
+winget install --id Docker.DockerDesktop -e
+```
+
+For local development outside Docker, also install Node.js:
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS -e
+```
+
+After installing, restart PowerShell, start Docker Desktop, and verify the tools:
+
+```powershell
+git --version
+gh --version
+docker version
+```
+
+If you installed Node.js for local development, verify it too:
+
+```powershell
+node --version
+npm --version
+```
+
+If GitHub authentication is required, run:
 
 ```powershell
 gh auth login
-git clone https://github.com/parallel42/p42-coherentgt-mcp.git
-cd p42-coherentgt-mcp
-docker build -t p42-coherentgt-mcp .
+```
+
+Enable the Coherent GT/MSFS debugger or developer module in the simulator/add-on environment, then verify the host endpoint:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
+```
+
+Docker containers must target `http://host.docker.internal:19999`, not `http://127.0.0.1:19999`.
+
+## Build
+
+```powershell
+git clone https://github.com/parallel42/Coherent-GT-MCP.git
+cd Coherent-GT-MCP
+docker build -t coherent-gt-mcp .
 ```
 
 ## MCP Config
@@ -23,17 +74,17 @@ JSON clients:
 ```json
 {
   "mcpServers": {
-    "p42-coherentgt-mcp": {
+    "coherent-gt-mcp": {
       "command": "docker",
       "args": [
         "run",
         "--rm",
         "--name",
-        "p42-coherentgt-mcp",
+        "coherent-gt-mcp",
         "-i",
         "-e",
         "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-        "p42-coherentgt-mcp"
+        "coherent-gt-mcp"
       ]
     }
   }
@@ -43,17 +94,17 @@ JSON clients:
 Codex TOML:
 
 ```toml
-[mcp_servers.p42-coherentgt-mcp]
+[mcp_servers.coherent-gt-mcp]
 command = "docker"
 args = [
   "run",
   "--rm",
   "--name",
-  "p42-coherentgt-mcp",
+  "coherent-gt-mcp",
   "-i",
   "-e",
   "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-  "p42-coherentgt-mcp"
+  "coherent-gt-mcp"
 ]
 ```
 
@@ -62,9 +113,9 @@ Restart the agent after changing MCP config.
 ## Manual Run
 
 ```powershell
-docker run --rm --name p42-coherentgt-mcp -i `
+docker run --rm --name coherent-gt-mcp -i `
   -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
-  p42-coherentgt-mcp
+  coherent-gt-mcp
 ```
 
 The fixed Docker name is intentional. Docker will reject a second concurrent MCP instance with the same name, which protects the Coherent debugger from stale parallel inspector sessions.
