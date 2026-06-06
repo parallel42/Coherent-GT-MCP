@@ -4,7 +4,7 @@ export function coherentgtProfileCapabilities(): Record<string, unknown> {
     agentGuidance: [
       "Do not probe Chrome-only domains first. Coherent GT targets normally do not expose Performance, Profiler, Tracing, HeapProfiler, DOMSnapshot, or Runtime.getHeapUsage.",
       "Use the MCP profiling tools first. They wrap the legacy Timeline, ScriptProfiler, Network, Heap, LayerTree, and Page overlay commands and return compact summaries.",
-      "If these profiling tools are missing from an agent session, the MCP client has stale tool metadata or is connected to an older server. Restart the MCP client/session and verify the shared Docker endpoint lists the profiling tools."
+      "If these profiling tools are missing from an agent session, the MCP client has stale tool metadata or is connected to an older server. Restart the MCP client/session and verify the configured MCP endpoint lists the profiling tools."
     ],
     recommendedFlow: [
       "coherentgt_list_views({})",

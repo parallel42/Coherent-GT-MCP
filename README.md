@@ -1,29 +1,14 @@
 # CoherentGT MCP
 
-Dockerized MCP server for inspecting and controlling live Coherent GT UI views through the Coherent debugger service.
+MCP server for inspecting and controlling live Coherent GT UI views through the Coherent debugger service.
 
 - Host debugger: `http://127.0.0.1:19999/pagelist.json`
-- Docker debugger URL: `http://host.docker.internal:19999`
 - Transports: MCP stdio, or shared Streamable HTTP on `/mcp`
 - Scope: debugger HTTP + WebKit Inspector endpoints
 
 ## Quick Start
 
-### 1. Start Docker Desktop
-
-If Docker is not installed:
-
-```powershell
-winget install --id Docker.DockerDesktop -e
-```
-
-Verify Docker:
-
-```powershell
-docker version
-```
-
-### 2. Start A Coherent GT Host
+### 1. Start A Coherent GT Host
 
 Verify the Coherent debugger endpoint:
 
@@ -31,121 +16,87 @@ Verify the Coherent debugger endpoint:
 Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
 ```
 
-### 3. Pull the Image
+### 2. Install And Build
 
 ```powershell
-docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
+npm ci
+npm run build
 ```
 
-### 4. Add the MCP Server
-
-#### Shared HTTP Server (Recommended For Codex)
-
-For Codex, use the launcher/proxy script so every session uses one shared Docker MCP instance without manually starting the container first:
+### 3. Add The MCP Server To Codex
 
 ```toml
 [mcp_servers.p42-coherentgt-mcp]
 command = "node"
-args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\scripts\codex-shared-mcp-proxy.mjs']
+args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\dist\index.js']
+
+[mcp_servers.p42-coherentgt-mcp.env]
+COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
 ```
 
-The proxy creates or starts a named `coherent-gt-mcp-shared` Docker container, connects to `http://127.0.0.1:3333/mcp`, and forwards Codex MCP traffic to that shared instance. The shared container exits after `COHERENT_GT_IDLE_TIMEOUT_MS` without requests and will be started again automatically by the next Codex session or tool call.
+Restart Codex after changing the MCP configuration, then call `coherentgt_health` and `coherentgt_list_views`.
 
-When the named container is stopped, the proxy compares its image ID with the configured image tag and recreates the container if the tag now points at a newer local image. A running shared container is left alone so active agents keep the same instance.
+### Optional Shared HTTP Mode
 
-Manual shared-container command, if you want to run it yourself:
-
-Run one shared Docker container:
+Run one local Node HTTP server:
 
 ```powershell
-docker run -d `
-  --name coherent-gt-mcp-shared `
-  -p 3333:3333 `
-  -e COHERENT_GT_TRANSPORT=http `
-  -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
-  ghcr.io/parallel42/coherent-gt-mcp:latest
+$env:COHERENT_GT_TRANSPORT = "http"
+$env:COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
+node .\dist\index.js
 ```
 
-Codex TOML:
+Codex can then connect to the shared endpoint:
 
 ```toml
 [mcp_servers.coherent-gt-mcp]
 url = "http://127.0.0.1:3333/mcp"
 ```
 
-All active Codex sessions that use this URL connect to the same container and share persistent debugger session state. When the last MCP HTTP session disconnects, the server closes retained Coherent WebInspector sockets so the standalone Coherent Debugger can attach. Check the shared server with:
+All active Codex sessions that use this URL connect to the same Node process and share persistent debugger session state. When the last MCP HTTP session disconnects, the server closes retained Coherent WebInspector sockets so the standalone Coherent Debugger can attach. Check the shared server with:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:3333/health
 ```
 
-Stop it with:
-
-```powershell
-docker stop coherent-gt-mcp-shared
-```
-
-If the shared container has exited after being idle, start the same named container again:
-
-```powershell
-docker start coherent-gt-mcp-shared
-```
-
-#### Stdio Per Client
-
-JSON clients:
+### JSON Clients
 
 ```json
 {
   "mcpServers": {
     "coherent-gt-mcp": {
-      "command": "docker",
+      "command": "node",
       "args": [
-        "run",
-        "--rm",
-        "-i",
-        "-e",
-        "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-        "ghcr.io/parallel42/coherent-gt-mcp:latest"
-      ]
+        "F:\\Documents\\Clients\\Parallel 42\\Git\\p42-coherentgt-mcp\\dist\\index.js"
+      ],
+      "env": {
+        "COHERENT_GT_DEBUGGER_URL": "http://127.0.0.1:19999"
+      }
     }
   }
 }
 ```
 
-Codex TOML:
-
-```toml
-[mcp_servers.coherent-gt-mcp]
-command = "docker"
-args = [
-  "run",
-  "--rm",
-  "-i",
-  "-e",
-  "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-  "ghcr.io/parallel42/coherent-gt-mcp:latest"
-]
-```
-
-Restart the agent, then call `coherentgt_health` and `coherentgt_list_views`.
-
-Do not set a fixed Docker `--name` in stdio MCP client configurations. Stdio clients start the server as a subprocess, and a named container can block future agent starts if a previous process is still running or did not shut down cleanly. Use `--name` only for one-off manual debugging commands or for the shared HTTP container you manage explicitly.
-
 ## Update
 
 ```powershell
-docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
+git pull
+npm ci
+npm run build
 ```
 
-Restart the agent after pulling the new image. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before the image update can still report the older limited tool set even when the shared HTTP endpoint is already current.
+Restart the agent after rebuilding. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before a rebuild can still report the older tool set.
+
+## Optional Docker Packaging
+
+Docker is not needed for Codex. If you still want a container for another client, the Docker image must use `COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999` because the server runs inside Docker.
 
 ## Configuration
 
 | Variable | Default |
 | --- | --- |
 | `COHERENT_GT_TRANSPORT` | `stdio` |
-| `COHERENT_GT_DEBUGGER_URL` | `http://host.docker.internal:19999` |
+| `COHERENT_GT_DEBUGGER_URL` | `http://127.0.0.1:19999` |
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` |
@@ -161,7 +112,7 @@ Restart the agent after pulling the new image. MCP clients usually cache tool me
 | `COHERENT_GT_HTTP_PORT` | `3333` |
 | `COHERENT_GT_HTTP_PATH` | `/mcp` |
 
-`COHERENT_GT_DEBUGGER_URL` uses `host.docker.internal` because the server runs inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio and shared HTTP modes and defaults to 50 minutes; set it to `0` to disable automatic shutdown.
+`COHERENT_GT_DEBUGGER_URL` defaults to the Windows host debugger endpoint for local Node runs. Use `http://host.docker.internal:19999` only when running the server inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio and shared HTTP modes and defaults to 50 minutes; set it to `0` to disable automatic shutdown.
 
 Oversized tool replies are cached in memory and returned as a small preview with a `resultId`. Use `coherentgt_result_read` to read bounded byte ranges from the cached reply, or `coherentgt_result_search` to find compact match snippets without loading the full payload into the agent context. `COHERENT_GT_INLINE_RESULT_BYTES` controls when this kicks in, `COHERENT_GT_RESULT_PREVIEW_BYTES` controls the initial preview size, and `COHERENT_GT_RESULT_CHUNK_BYTES` controls the default follow-up read size.
 
@@ -173,7 +124,7 @@ $env:COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS = "C:\Path\To\Resources|D:\OtherReso
 npm run host-helper
 ```
 
-Point the Docker MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://host.docker.internal:3344`. Process names, log roots, and local resource roots are allowlists; when the helper is not configured, diagnostic tools return an explicit unavailable reason.
+Point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:3344` for local Node runs, or `http://host.docker.internal:3344` when running inside Docker. Process names, log roots, and local resource roots are allowlists; when the helper is not configured, diagnostic tools return an explicit unavailable reason.
 
 ## Tools
 

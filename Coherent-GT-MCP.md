@@ -2,7 +2,7 @@
 
 ## Project Summary
 
-CoherentGT MCP is a Dockerized TypeScript MCP server for inspecting, debugging, and controlling live Coherent GT UI views through the Coherent debugger service.
+CoherentGT MCP is a TypeScript MCP server for inspecting, debugging, and controlling live Coherent GT UI views through the Coherent debugger service.
 
 The project exposes stdio and Streamable HTTP MCP transports that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, run persistent debugger sessions with breakpoints and call-frame inspection, and capture legacy WebKit profiling telemetry.
 
@@ -10,8 +10,7 @@ Canonical names:
 
 - Repository: `Coherent-GT-MCP`
 - Package/server: `coherent-gt-mcp`
-- Docker image: `ghcr.io/parallel42/coherent-gt-mcp:latest`
-- Container examples: unnamed MCP stdio containers or one named shared HTTP container.
+- Optional Docker image: `ghcr.io/parallel42/coherent-gt-mcp:latest`
 
 References:
 
@@ -30,9 +29,9 @@ Stdio topology:
 
 ```text
 MCP client/agent
-  -> docker run --rm -i ghcr.io/parallel42/coherent-gt-mcp:latest
-    -> http://host.docker.internal:19999/pagelist.json
-    -> ws://host.docker.internal:19999/devtools/page/<pageId>
+  -> node dist/index.js
+    -> http://127.0.0.1:19999/pagelist.json
+    -> ws://127.0.0.1:19999/devtools/page/<pageId>
       -> live Coherent GT view
 ```
 
@@ -41,32 +40,27 @@ Shared HTTP topology:
 ```text
 MCP client/agent A -> http://127.0.0.1:3333/mcp
 MCP client/agent B -> http://127.0.0.1:3333/mcp
-  -> docker run -d --name coherent-gt-mcp-shared -p 3333:3333 ...
-    -> http://host.docker.internal:19999/pagelist.json
-    -> ws://host.docker.internal:19999/devtools/page/<pageId>
+  -> COHERENT_GT_TRANSPORT=http node dist/index.js
+    -> http://127.0.0.1:19999/pagelist.json
+    -> ws://127.0.0.1:19999/devtools/page/<pageId>
       -> live Coherent GT view
 ```
 
-The host debugger endpoint is normally reachable at `http://127.0.0.1:19999` from Windows. Inside Docker, the same host service must be reached as `http://host.docker.internal:19999`.
+The host debugger endpoint is normally reachable at `http://127.0.0.1:19999` from Windows. Inside Docker only, the same host service must be reached as `http://host.docker.internal:19999`.
 
 ## User Requirements
 
 Normal users need:
 
-- Windows with Docker Desktop running Linux containers.
+- Windows with Node.js 20 or newer.
 - A stdio-capable MCP client or a Streamable HTTP-capable MCP client or agent.
 - A Coherent GT host running with the Coherent debugger endpoint available on the host.
 
-Docker Desktop installation:
+Install dependencies and build:
 
 ```powershell
-winget install --id Docker.DockerDesktop -e
-```
-
-After installing Docker Desktop, restart PowerShell, start Docker Desktop, and verify Docker:
-
-```powershell
-docker version
+npm ci
+npm run build
 ```
 
 Verify the Coherent debugger endpoint while the Coherent GT host is running:
@@ -75,76 +69,52 @@ Verify the Coherent debugger endpoint while the Coherent GT host is running:
 Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
 ```
 
-Install the published image:
-
-```powershell
-docker pull ghcr.io/parallel42/coherent-gt-mcp:latest
-```
-
 Run command used by stdio MCP clients:
 
 ```powershell
-docker run --rm -i `
-  -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
-  ghcr.io/parallel42/coherent-gt-mcp:latest
+node .\dist\index.js
 ```
-
-MCP stdio client configurations should not set Docker `--name`. Stdio clients launch the server as a subprocess and may start it repeatedly across app restarts, CLI sessions, and retries. A fixed container name can leave future launches blocked by Docker's name uniqueness check if a previous process is still running or did not exit cleanly.
 
 ## MCP Client Configuration
 
-### Shared HTTP Server
+### Codex Local Stdio
 
-Codex should use the launcher/proxy script so every session uses one shared Docker MCP instance without manually starting the container first:
+Codex should run the local Node server directly:
 
 ```toml
 [mcp_servers.p42-coherentgt-mcp]
 command = "node"
-args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\scripts\codex-shared-mcp-proxy.mjs']
+args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\dist\index.js']
+
+[mcp_servers.p42-coherentgt-mcp.env]
+COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
 ```
 
-The proxy creates or starts the named `coherent-gt-mcp-shared` Docker container, connects to `http://127.0.0.1:3333/mcp`, and forwards Codex MCP traffic to that shared instance. The shared container exits after `COHERENT_GT_IDLE_TIMEOUT_MS` without requests and will be started again automatically by the next Codex session or tool call.
+Restart Codex after changing the MCP configuration or rebuilding the server. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before a rebuild can still report an older tool set.
 
-When the named container is stopped, the proxy compares its image ID with the configured image tag and recreates the container if the tag now points at a newer local image. A running shared container is left alone so active agents keep the same instance.
+### Shared HTTP Server
 
-Manual shared-container command, if needed:
-
-Run one shared Docker container:
+Run one local Node HTTP server:
 
 ```powershell
-docker run -d `
-  --name coherent-gt-mcp-shared `
-  -p 3333:3333 `
-  -e COHERENT_GT_TRANSPORT=http `
-  -e COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999 `
-  ghcr.io/parallel42/coherent-gt-mcp:latest
+$env:COHERENT_GT_TRANSPORT = "http"
+$env:COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
+node .\dist\index.js
 ```
 
-Codex TOML:
+Codex can connect to that shared process:
 
 ```toml
-[mcp_servers.coherent-gt-mcp]
+[mcp_servers.p42-coherentgt-mcp]
 url = "http://127.0.0.1:3333/mcp"
 ```
 
-All active Codex sessions using that URL connect to the same container. Persistent debugger/profiling sessions, tracked scripts, retained profiling payloads, and MCP-created breakpoints are shared through the long-running process. When the last MCP HTTP session disconnects, retained Coherent WebInspector sockets are closed so the standalone Coherent Debugger can attach without waiting for container idle shutdown.
+All active Codex sessions using that URL connect to the same Node process. Persistent debugger/profiling sessions, tracked scripts, retained profiling payloads, and MCP-created breakpoints are shared through the long-running process. When the last MCP HTTP session disconnects, retained Coherent WebInspector sockets are closed so the standalone Coherent Debugger can attach without waiting for idle shutdown.
 
 Health check:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:3333/health
-```
-
-Stop the shared server:
-
-```powershell
-docker stop coherent-gt-mcp-shared
-```
-
-If the shared server exits after being idle, start the same named container again:
-
-```powershell
-docker start coherent-gt-mcp-shared
 ```
 
 ### Stdio Per Client
@@ -155,50 +125,31 @@ JSON clients:
 {
   "mcpServers": {
     "coherent-gt-mcp": {
-      "command": "docker",
+      "command": "node",
       "args": [
-        "run",
-        "--rm",
-        "-i",
-        "-e",
-        "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-        "ghcr.io/parallel42/coherent-gt-mcp:latest"
-      ]
+        "F:\\Documents\\Clients\\Parallel 42\\Git\\p42-coherentgt-mcp\\dist\\index.js"
+      ],
+      "env": {
+        "COHERENT_GT_DEBUGGER_URL": "http://127.0.0.1:19999"
+      }
     }
   }
 }
 ```
-
-Codex TOML:
-
-```toml
-[mcp_servers.coherent-gt-mcp]
-command = "docker"
-args = [
-  "run",
-  "--rm",
-  "-i",
-  "-e",
-  "COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999",
-  "ghcr.io/parallel42/coherent-gt-mcp:latest"
-]
-```
-
-Restart the MCP client after changing configuration or pulling a newer image. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before an image update can still report the older limited tool set even when the shared HTTP endpoint is already current.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `COHERENT_GT_TRANSPORT` | `stdio` | MCP transport mode: `stdio` or `http`. |
-| `COHERENT_GT_DEBUGGER_URL` | `http://host.docker.internal:19999` | Base URL for the Coherent debugger service from inside Docker. |
+| `COHERENT_GT_DEBUGGER_URL` | `http://127.0.0.1:19999` | Base URL for the Coherent debugger service. Use `http://host.docker.internal:19999` only inside Docker. |
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` | Timeout for debugger HTTP requests such as `/pagelist.json`. |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` | Timeout for WebKit Inspector WebSocket commands. |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` | Hard maximum JSON text payload size returned through MCP. |
 | `COHERENT_GT_INLINE_RESULT_BYTES` | `32768` | Maximum serialized result size returned inline before the full reply is cached and previewed. |
 | `COHERENT_GT_RESULT_PREVIEW_BYTES` | `12000` | Initial preview size for cached oversized replies. |
 | `COHERENT_GT_RESULT_CHUNK_BYTES` | `16000` | Default byte range size for `coherentgt_result_read`. |
-| `COHERENT_GT_HOST_HELPER_URL` | unset | Optional read-only host helper URL for process/log/resource correlation from Docker. |
+| `COHERENT_GT_HOST_HELPER_URL` | unset | Optional read-only host helper URL for process/log/resource correlation. |
 | `COHERENT_GT_HOST_HELPER_PROCESS_NAMES` | unset | Comma- or pipe-separated process allowlist queried by the host helper. |
 | `COHERENT_GT_HOST_HELPER_LOG_ROOTS` | unset | Pipe-separated log roots queried by the host helper. |
 | `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS` | unset | Pipe-separated local resource roots queried by the host helper for `coui://` URL correlation. |
@@ -211,7 +162,7 @@ Configuration is normalized at startup. Paths, query strings, fragments, and tra
 
 Oversized tool replies are cached in memory and returned as a small preview with a `resultId`. Use `coherentgt_result_read` to read bounded byte ranges from the cached reply, or `coherentgt_result_search` to find compact match snippets without loading the full payload into the agent context.
 
-Optional host process/log/resource correlation is exposed by `scripts/coherentgt-host-helper.mjs`. Run it on Windows with `npm run host-helper`, configure allowlists with `COHERENT_GT_HOST_HELPER_PROCESS_NAMES`, `COHERENT_GT_HOST_HELPER_LOG_ROOTS`, and `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS`, and point Docker at it with `COHERENT_GT_HOST_HELPER_URL=http://host.docker.internal:3344`.
+Optional host process/log/resource correlation is exposed by `scripts/coherentgt-host-helper.mjs`. Run it on Windows with `npm run host-helper`, configure allowlists with `COHERENT_GT_HOST_HELPER_PROCESS_NAMES`, `COHERENT_GT_HOST_HELPER_LOG_ROOTS`, and `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS`, and point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:3344`. Use `http://host.docker.internal:3344` only when the MCP server runs inside Docker.
 
 ## Capability Matrix
 
@@ -604,9 +555,9 @@ Coherent-GT-MCP/
       view-selector.test.ts
 ```
 
-## Docker Image
+## Optional Docker Image
 
-The Dockerfile is multi-stage:
+Docker is optional packaging for clients that need a container. Codex should use local Node stdio by default. The Dockerfile is multi-stage:
 
 - `deps`: installs dependencies with `npm ci`.
 - `build`: compiles TypeScript into `dist`.
@@ -661,8 +612,8 @@ Manual acceptance checks:
 
 1. Start a Coherent GT host with debugger support enabled.
 2. Confirm the host can open `http://127.0.0.1:19999/pagelist.json`.
-3. Pull `ghcr.io/parallel42/coherent-gt-mcp:latest`.
-4. Run an MCP Inspector or local MCP client against either the Docker stdio command or the shared HTTP endpoint.
+3. Run `npm ci` and `npm run build`.
+4. Run an MCP Inspector or local MCP client against either local Node stdio or the shared HTTP endpoint.
 5. Call `coherentgt_health`; expect `reachable: true` and a nonzero page count.
 6. Call `coherentgt_list_views`; expect live Coherent debugger views from the running host.
 7. Call `coherentgt_eval_js` with `document.title`.
@@ -692,17 +643,19 @@ Use the server only with local development targets you control. Treat MCP client
   Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
   ```
 
-- If the endpoint works on the host but fails in Docker, verify the MCP config uses `http://host.docker.internal:19999`, not `http://127.0.0.1:19999`.
+- If the endpoint works on the host but fails from local Node, verify the MCP config uses `http://127.0.0.1:19999`.
+- If the endpoint works on the host but fails inside Docker, verify the container config uses `http://host.docker.internal:19999`.
 - If views are missing, open or reload the relevant Coherent GT view in the host application and call `coherentgt_list_views` again.
 - If native CSS/DOM/resource tools fail, retry with `coherentgt_inspector_command` to check whether that WebInspector domain is supported by the target Coherent build.
 - If `Runtime.evaluate` times out, use native tools such as `coherentgt_inspect_selector`, `coherentgt_get_resource_tree`, and `coherentgt_probe_resource` before retrying runtime evaluation. Normalized evaluation tools return `likelyCause: "main-thread-busy"` when the timeout fits that pattern.
 - If persistent debugger tools report no active session, call `coherentgt_debug_start` for that `pageId` first.
-- If a stdio or shared HTTP container exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
-- If HTTP clients cannot connect, verify the shared container is running and `Invoke-RestMethod http://127.0.0.1:3333/health` succeeds.
+- If a stdio or shared HTTP process exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
+- If HTTP clients cannot connect, verify the shared Node process is running and `Invoke-RestMethod http://127.0.0.1:3333/health` succeeds.
 
 ## Current Boundaries
 
-- The server supports Dockerized stdio MCP and Dockerized Streamable HTTP MCP.
+- The server supports local Node stdio MCP and local Node Streamable HTTP MCP.
+- Docker packaging is optional.
 - It does not ship a native C++ bridge.
 - The HTTP transport exposes local MCP and health endpoints only.
 - It is intended for local development/debugging, not embedded use in shipped products.

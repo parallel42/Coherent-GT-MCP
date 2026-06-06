@@ -19,7 +19,7 @@ export type AppConfig = {
 
 const DEFAULTS: AppConfig = {
   transport: "stdio",
-  debuggerUrl: "http://host.docker.internal:19999",
+  debuggerUrl: "http://127.0.0.1:19999",
   requestTimeoutMs: 5000,
   wsTimeoutMs: 30000,
   maxTextBytes: 262144,

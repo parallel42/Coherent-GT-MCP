@@ -10,6 +10,10 @@ describe("config URL normalization", () => {
     expect(loadConfig({}).idleTimeoutMs).toBe(3000000);
   });
 
+  it("defaults to the host Coherent debugger URL for local Node runs", () => {
+    expect(loadConfig({}).debuggerUrl).toBe("http://127.0.0.1:19999");
+  });
+
   it("defaults websocket commands to 30 seconds", () => {
     expect(loadConfig({}).wsTimeoutMs).toBe(30000);
   });
