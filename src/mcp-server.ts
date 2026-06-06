@@ -4,8 +4,13 @@ import type { z } from "zod";
 import { CoherentDebuggerClient } from "./coherent/debugger-client.js";
 import type { AppConfig } from "./config.js";
 import { coherentgtProfileCapabilities } from "./tools/capabilities.js";
+import { DiagnosticSessionManager } from "./tools/diagnostics.js";
+import { coherentgtEvaluate } from "./tools/evaluate.js";
 import { coherentgtHealth } from "./tools/health.js";
+import { coherentgtListPages } from "./tools/pages.js";
+import { probeImage, probeResource } from "./tools/resource-probe.js";
 import { coherentgtInspectorCommand } from "./tools/inspector.js";
+import { inspectSelector } from "./tools/selector-inspection.js";
 import { buildLocationReloadExpression, pageNavigateParams, pageReloadParams } from "./tools/navigation.js";
 import {
   getMatchedStyles,
@@ -23,6 +28,8 @@ import {
   callEngineInputSchema,
   clickInputSchema,
   compositingReasonsInputSchema,
+  consoleSnapshotInputSchema,
+  diagnosePageInputSchema,
   debugDomBreakpointInputSchema,
   debugCommandInputSchema,
   debugEvaluateInputSchema,
@@ -40,17 +47,24 @@ import {
   debugStatusInputSchema,
   debugStopInputSchema,
   debugXhrBreakpointInputSchema,
+  evaluateInputSchema,
+  eventListenersInputSchema,
   evalJsInputSchema,
   getDocumentInputSchema,
   healthInputSchema,
+  imageProbeInputSchema,
+  inspectSelectorInputSchema,
   inspectorCommandInputSchema,
   focusedProfileStartInputSchema,
   layerTreeInputSchema,
+  listPagesInputSchema,
   listViewsInputSchema,
   matchedStylesInputSchema,
   nativeDocumentInputSchema,
+  networkSnapshotInputSchema,
   navigateViewInputSchema,
   outerHtmlInputSchema,
+  pageHealthInputSchema,
   profileEventsInputSchema,
   profileCapabilitiesInputSchema,
   profilePageInputSchema,
@@ -60,13 +74,18 @@ import {
   profileStopInputSchema,
   querySelectorInputSchema,
   reloadViewInputSchema,
+  resultReadInputSchema,
+  resultSearchInputSchema,
+  runtimeErrorsInputSchema,
   resourceContentInputSchema,
+  resourceProbeInputSchema,
   resourceSearchInputSchema,
   resourceTreeInputSchema,
   setStyleInputSchema,
   stylesheetTextInputSchema,
   stylesheetsInputSchema,
   timelineStartInputSchema,
+  traceEventsInputSchema,
   triggerEventInputSchema,
   visualOverlayInputSchema
 } from "./tools/schemas.js";
@@ -74,7 +93,7 @@ import { buildSetStyleExpression } from "./tools/css.js";
 import { DebugSessionManager } from "./tools/debugger.js";
 import { buildGetDocumentExpression, buildQuerySelectorExpression } from "./tools/dom.js";
 import { buildClickExpression } from "./tools/events.js";
-import { jsonToolResult } from "./tools/result.js";
+import { jsonToolResult, ToolResultStore } from "./tools/result.js";
 import { ProfilingSessionManager } from "./tools/profiling.js";
 import { buildEngineCallExpression, buildEngineTriggerExpression, runtimeEvaluateParams } from "./tools/runtime.js";
 
@@ -82,6 +101,8 @@ export type McpSharedState = {
   debuggerClient: CoherentDebuggerClient;
   debugSessions: DebugSessionManager;
   profilingSessions: ProfilingSessionManager;
+  diagnosticSessions: DiagnosticSessionManager;
+  resultStore: ToolResultStore;
 };
 
 export type CreateMcpServerOptions = {
@@ -101,7 +122,18 @@ export function createMcpSharedState(config: AppConfig): McpSharedState {
     profilingSessions: new ProfilingSessionManager({
       debuggerUrl: config.debuggerUrl,
       timeoutMs: config.wsTimeoutMs
-    })
+    }),
+    diagnosticSessions: new DiagnosticSessionManager({
+      debuggerUrl: config.debuggerUrl,
+      timeoutMs: config.wsTimeoutMs,
+      hostCorrelation: {
+        hostHelperUrl: config.hostHelperUrl,
+        processNames: config.hostHelperProcessNames,
+        logRoots: config.hostHelperLogRoots,
+        resourceRoots: config.hostHelperResourceRoots
+      }
+    }),
+    resultStore: new ToolResultStore()
   };
 }
 
@@ -111,7 +143,8 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
     version: "0.1.0"
   });
 
-  const { debuggerClient, debugSessions, profilingSessions } = options.state ?? createMcpSharedState(config);
+  const { debuggerClient, debugSessions, profilingSessions, diagnosticSessions, resultStore } =
+    options.state ?? createMcpSharedState(config);
   const idleShutdown = createIdleShutdown(config.idleTimeoutMs, async () => {
     await options.onIdle?.();
   }, options.enableIdleShutdown ?? true);
@@ -120,7 +153,11 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
     idleShutdown.reset();
     options.onActivity?.();
     try {
-      return jsonToolResult(await fn(), config.maxTextBytes);
+      return jsonToolResult(await fn(), config.maxTextBytes, {
+        resultStore,
+        inlineMaxBytes: config.inlineResultBytes,
+        previewBytes: config.resultPreviewBytes
+      });
     } catch (error) {
       return {
         isError: true,
@@ -128,13 +165,55 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
           {
             error: error instanceof Error ? error.message : String(error)
           },
-          config.maxTextBytes
+          config.maxTextBytes,
+          {
+            resultStore,
+            inlineMaxBytes: config.inlineResultBytes,
+            previewBytes: config.resultPreviewBytes
+          }
         )
       };
     } finally {
       idleShutdown.reset();
     }
   };
+
+  server.registerTool(
+    "coherentgt_result_read",
+    {
+      title: "Read Cached Tool Result",
+      description: "Read a bounded byte range from an oversized MCP reply cached by resultId.",
+      inputSchema: resultReadInputSchema
+    },
+    async (args: z.infer<typeof resultReadInputSchema>) =>
+      run(() =>
+        resultStore.read({
+          resultId: args.resultId,
+          offsetBytes: args.offsetBytes,
+          maxBytes: Math.min(args.maxBytes ?? config.resultChunkBytes, config.inlineResultBytes, config.maxTextBytes)
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_result_search",
+    {
+      title: "Search Cached Tool Result",
+      description: "Search an oversized MCP reply cached by resultId and return compact match snippets.",
+      inputSchema: resultSearchInputSchema
+    },
+    async (args: z.infer<typeof resultSearchInputSchema>) =>
+      run(() =>
+        resultStore.search({
+          resultId: args.resultId,
+          query: args.query,
+          caseSensitive: args.caseSensitive,
+          isRegex: args.isRegex,
+          maxMatches: args.maxMatches,
+          contextChars: args.contextChars
+        })
+      )
+  );
 
   server.registerTool(
     "coherentgt_health",
@@ -154,6 +233,22 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
       inputSchema: listViewsInputSchema
     },
     async () => run(() => coherentgtListViews(debuggerClient))
+  );
+
+  server.registerTool(
+    "coherentgt_list_pages",
+    {
+      title: "List Coherent GT Pages",
+      description: "List live Coherent GT pages with normalized inspector URLs and optional title/url filters.",
+      inputSchema: listPagesInputSchema
+    },
+    async (args: z.infer<typeof listPagesInputSchema>) =>
+      run(() =>
+        coherentgtListPages(debuggerClient, config.debuggerUrl, {
+          titleContains: args.titleContains,
+          urlContains: args.urlContains
+        })
+      )
   );
 
   server.registerTool(
@@ -201,6 +296,144 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
           method: "Runtime.evaluate",
           params: runtimeEvaluateParams(args),
           timeoutMs: args.timeoutMs ?? config.wsTimeoutMs
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_evaluate",
+    {
+      title: "Evaluate JavaScript With Normalized Result",
+      description:
+        "Evaluate JavaScript in a live Coherent GT view and return a flattened value/exception shape. Warn-only risk metadata is included but not enforced.",
+      inputSchema: evaluateInputSchema
+    },
+    async (args: z.infer<typeof evaluateInputSchema>) =>
+      run(() =>
+        coherentgtEvaluate({
+          debuggerUrl: config.debuggerUrl,
+          pageId: args.pageId,
+          expression: args.expression,
+          awaitPromise: args.awaitPromise,
+          returnByValue: args.returnByValue,
+          timeoutMs: args.timeoutMs ?? config.wsTimeoutMs,
+          risk: args.risk
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_console_snapshot",
+    {
+      title: "Console Snapshot",
+      description: "Read buffered Coherent GT console messages from a persistent diagnostic session.",
+      inputSchema: consoleSnapshotInputSchema
+    },
+    async (args: z.infer<typeof consoleSnapshotInputSchema>) =>
+      run(() =>
+        diagnosticSessions.consoleSnapshot(args.pageId, {
+          levels: args.levels,
+          textContains: args.textContains,
+          maxEvents: args.maxEvents
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_runtime_errors",
+    {
+      title: "Runtime Error Summary",
+      description: "Read buffered Runtime.exceptionThrown events with stack frames when available.",
+      inputSchema: runtimeErrorsInputSchema
+    },
+    async (args: z.infer<typeof runtimeErrorsInputSchema>) =>
+      run(() => diagnosticSessions.runtimeErrors(args.pageId, { maxEvents: args.maxEvents }))
+  );
+
+  server.registerTool(
+    "coherentgt_page_health",
+    {
+      title: "Page Health Snapshot",
+      description: "Sample generic document and requestAnimationFrame health for a Coherent GT page.",
+      inputSchema: pageHealthInputSchema
+    },
+    async (args: z.infer<typeof pageHealthInputSchema>) =>
+      run(() =>
+        diagnosticSessions.pageHealth(args.pageId, {
+          sampleMs: args.sampleMs,
+          globalProbes: args.globalProbes
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_network_snapshot",
+    {
+      title: "Network And WebSocket Snapshot",
+      description: "Summarize buffered Network events, including WebSocket state and last sent/received frames.",
+      inputSchema: networkSnapshotInputSchema
+    },
+    async (args: z.infer<typeof networkSnapshotInputSchema>) =>
+      run(() =>
+        diagnosticSessions.networkSnapshot(args.pageId, {
+          maxEvents: args.maxEvents,
+          maxPayloadChars: args.maxPayloadChars
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_event_listeners",
+    {
+      title: "Event Listener Introspection",
+      description: "Inspect DOM event listeners for a selector using native DOMDebugger support when available.",
+      inputSchema: eventListenersInputSchema
+    },
+    async (args: z.infer<typeof eventListenersInputSchema>) =>
+      run(() =>
+        diagnosticSessions.eventListeners(args.pageId, {
+          selector: args.selector
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_trace_events",
+    {
+      title: "Trace Inspector Events",
+      description: "Attach a diagnostic session briefly and return buffered inspector events.",
+      inputSchema: traceEventsInputSchema
+    },
+    async (args: z.infer<typeof traceEventsInputSchema>) =>
+      run(() =>
+        diagnosticSessions.traceEvents(args.pageId, {
+          timeoutMs: args.timeoutMs,
+          sinceSequence: args.sinceSequence,
+          maxEvents: args.maxEvents,
+          eventTypes: args.eventTypes
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_diagnose_page",
+    {
+      title: "Diagnose Coherent GT Page",
+      description:
+        "Run a generic high-signal diagnostic pass: page metadata, console/runtime errors, health, resources, network/WebSocket state, listeners, and host correlation.",
+      inputSchema: diagnosePageInputSchema
+    },
+    async (args: z.infer<typeof diagnosePageInputSchema>) =>
+      run(() =>
+        diagnosticSessions.diagnosePage(debuggerClient, {
+          pageId: args.pageId,
+          pageFilter: args.pageFilter,
+          sampleMs: args.sampleMs,
+          consoleLevels: args.consoleLevels,
+          globalProbes: args.globalProbes,
+          selectors: args.selectors,
+          resources: args.resources,
+          images: args.images
         })
       )
   );
@@ -566,6 +799,92 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
             timeoutMs: config.wsTimeoutMs
           },
           args
+        )
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_inspect_selector",
+    {
+      title: "Inspect Selector",
+      description:
+        "Return DOM existence, node id, outer HTML, computed style, box model, visibility, and optional matched CSS rules for a caller-provided selector using native WebInspector domains where possible.",
+      inputSchema: inspectSelectorInputSchema
+    },
+    async (args: z.infer<typeof inspectSelectorInputSchema>) =>
+      run(() =>
+        inspectSelector(
+          {
+            debuggerUrl: config.debuggerUrl,
+            pageId: args.pageId,
+            timeoutMs: config.wsTimeoutMs
+          },
+          args
+        )
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_probe_resource",
+    {
+      title: "Probe Resource",
+      description:
+        "Probe a caller-provided coui:// or page resource URL using Page.getResourceTree, optional Page.getResourceContent, buffered Network events, and optional host file correlation.",
+      inputSchema: resourceProbeInputSchema
+    },
+    async (args: z.infer<typeof resourceProbeInputSchema>) =>
+      run(async () =>
+        probeResource(
+          {
+            debuggerUrl: config.debuggerUrl,
+            pageId: args.pageId,
+            timeoutMs: config.wsTimeoutMs,
+            hostCorrelation: {
+              hostHelperUrl: config.hostHelperUrl,
+              processNames: config.hostHelperProcessNames,
+              logRoots: config.hostHelperLogRoots,
+              resourceRoots: config.hostHelperResourceRoots
+            }
+          },
+          {
+            url: args.url,
+            includeContent: args.includeContent,
+            includeNetwork: args.includeNetwork,
+            frameId: args.frameId,
+            network: args.includeNetwork ? await diagnosticSessions.networkForUrl(args.pageId, args.url) : undefined
+          }
+        )
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_probe_image",
+    {
+      title: "Probe Image",
+      description:
+        "Create a temporary Image in the page for a caller-provided URL and report load/decode result, natural dimensions, network status, and optional resource metadata.",
+      inputSchema: imageProbeInputSchema
+    },
+    async (args: z.infer<typeof imageProbeInputSchema>) =>
+      run(async () =>
+        probeImage(
+          {
+            debuggerUrl: config.debuggerUrl,
+            pageId: args.pageId,
+            timeoutMs: config.wsTimeoutMs,
+            hostCorrelation: {
+              hostHelperUrl: config.hostHelperUrl,
+              processNames: config.hostHelperProcessNames,
+              logRoots: config.hostHelperLogRoots,
+              resourceRoots: config.hostHelperResourceRoots
+            }
+          },
+          {
+            url: args.url,
+            timeoutMs: args.timeoutMs,
+            includeResourceProbe: args.includeResourceProbe,
+            network: await diagnosticSessions.networkForUrl(args.pageId, args.url)
+          }
         )
       )
   );

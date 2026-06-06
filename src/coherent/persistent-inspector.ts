@@ -42,6 +42,7 @@ export class PersistentInspectorSession {
   private readonly events: DebugEvent[] = [];
   private readonly scripts = new Map<string, DebugScript>();
   private readonly breakpoints = new Map<string, BreakpointRecord>();
+  private readonly capability = new Map<string, boolean>();
   private pausedState: unknown;
 
   constructor(
@@ -84,11 +85,14 @@ export class PersistentInspectorSession {
       this.socket?.on("close", () => this.closePending("Inspector session closed"));
     });
 
-    await this.command("Runtime.enable");
-    await this.command("Page.enable");
-    await this.command("Debugger.enable");
-    await this.command("Debugger.setBreakpointsActive", { active: true });
-    await this.command("Debugger.setPauseOnExceptions", { state: options.pauseOnExceptions ?? "none" });
+    await this.tryCommand("Runtime.enable");
+    await this.tryCommand("Page.enable");
+    const debuggerEnable = await this.tryCommand("Debugger.enable");
+    if (!debuggerEnable.ok) {
+      throw new Error(`Debugger.enable failed: ${debuggerEnable.error}`);
+    }
+    await this.tryCommand("Debugger.setBreakpointsActive", { active: true });
+    await this.tryCommand("Debugger.setPauseOnExceptions", { state: options.pauseOnExceptions ?? "none" });
 
     return this.status();
   }
@@ -131,7 +135,9 @@ export class PersistentInspectorSession {
       scriptCount: this.scripts.size,
       breakpointCount: this.breakpoints.size,
       eventCount: this.events.length,
-      lastEventSequence: this.eventSequence
+      lastEventSequence: this.eventSequence,
+      supported: [...this.capability.entries()].filter(([, ok]) => ok).map(([method]) => method),
+      unsupported: [...this.capability.entries()].filter(([, ok]) => !ok).map(([method]) => method)
     };
   }
 
@@ -180,6 +186,25 @@ export class PersistentInspectorSession {
     this.socket?.removeAllListeners();
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
       this.socket.close();
+    }
+  }
+
+  private async tryCommand(method: string, params?: object | undefined): Promise<{ ok: boolean; result?: unknown; error?: string }> {
+    if (this.capability.get(method) === false) {
+      return { ok: false, error: `${method} is not supported by this Coherent WebInspector target` };
+    }
+
+    try {
+      const result = await this.command(method, params);
+      if (result.response.error) {
+        this.capability.set(method, false);
+        return { ok: false, error: result.response.error.message };
+      }
+      this.capability.set(method, true);
+      return { ok: true, result: result.response.result ?? {} };
+    } catch (error) {
+      this.capability.set(method, false);
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 

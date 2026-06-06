@@ -8,9 +8,36 @@ export const healthInputSchema = z.object({}).strict();
 
 export const profileCapabilitiesInputSchema = z.object({}).strict();
 
+export const resultReadInputSchema = z
+  .object({
+    resultId: z.string().min(1),
+    offsetBytes: z.number().int().nonnegative().optional().default(0),
+    maxBytes: z.number().int().positive().max(262144).optional()
+  })
+  .strict();
+
+export const resultSearchInputSchema = z
+  .object({
+    resultId: z.string().min(1),
+    query: z.string().min(1),
+    caseSensitive: z.boolean().optional().default(false),
+    isRegex: z.boolean().optional().default(false),
+    maxMatches: z.number().int().positive().max(100).optional().default(20),
+    contextChars: z.number().int().nonnegative().max(1000).optional().default(160)
+  })
+  .strict();
+
 export const listViewsInputSchema = z
   .object({
     refresh: z.boolean().optional()
+  })
+  .strict();
+
+export const listPagesInputSchema = z
+  .object({
+    refresh: z.boolean().optional(),
+    titleContains: z.string().min(1).optional(),
+    urlContains: z.string().min(1).optional()
   })
   .strict();
 
@@ -30,6 +57,89 @@ export const evalJsInputSchema = z
     awaitPromise: z.boolean().optional().default(false),
     returnByValue: z.boolean().optional().default(true),
     timeoutMs: timeoutMsSchema
+  })
+  .strict();
+
+export const evaluateInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    expression: z.string().min(1),
+    awaitPromise: z.boolean().optional().default(true),
+    returnByValue: z.boolean().optional().default(true),
+    risk: z.enum(["read-only", "may-mutate", "unknown"]).optional().default("unknown"),
+    timeoutMs: timeoutMsSchema
+  })
+  .strict();
+
+export const consoleSnapshotInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    levels: z.array(z.string().min(1)).optional().default(["error", "warning"]),
+    textContains: z.string().min(1).optional(),
+    maxEvents: z.number().int().positive().max(500).optional().default(50)
+  })
+  .strict();
+
+export const runtimeErrorsInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    maxEvents: z.number().int().positive().max(500).optional().default(50)
+  })
+  .strict();
+
+export const pageHealthInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    sampleMs: z.number().int().nonnegative().max(5000).optional().default(750),
+    globalProbes: z.array(z.string().min(1)).optional()
+  })
+  .strict();
+
+export const networkSnapshotInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    maxEvents: z.number().int().positive().max(5000).optional().default(500),
+    maxPayloadChars: z.number().int().nonnegative().max(4096).optional().default(240)
+  })
+  .strict();
+
+export const eventListenersInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    selector: z.string().min(1).optional().default("document")
+  })
+  .strict();
+
+export const traceEventsInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    timeoutMs: z.number().int().nonnegative().max(30000).optional().default(1000),
+    sinceSequence: z.number().int().nonnegative().optional(),
+    maxEvents: z.number().int().positive().max(1000).optional().default(100),
+    eventTypes: z.array(z.string().min(1)).optional()
+  })
+  .strict();
+
+const diagnosePageFilterSchema = z.union([
+  z.string().min(1),
+  z
+    .object({
+      titleContains: z.string().min(1).optional(),
+      urlContains: z.string().min(1).optional()
+    })
+    .strict()
+]);
+
+export const diagnosePageInputSchema = z
+  .object({
+    pageId: pageIdSchema.optional(),
+    pageFilter: diagnosePageFilterSchema.optional(),
+    sampleMs: z.number().int().nonnegative().max(5000).optional().default(750),
+    consoleLevels: z.array(z.string().min(1)).optional().default(["error", "warning"]),
+    globalProbes: z.array(z.string().min(1)).optional(),
+    selectors: z.array(z.string().min(1)).max(20).optional(),
+    resources: z.array(z.string().min(1)).max(50).optional(),
+    images: z.array(z.string().min(1)).max(20).optional()
   })
   .strict();
 
@@ -154,6 +264,35 @@ export const matchedStylesInputSchema = z
   .object({
     pageId: pageIdSchema,
     selector: z.string().min(1)
+  })
+  .strict();
+
+export const inspectSelectorInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    selector: z.string().min(1),
+    includeComputedStyle: z.boolean().optional().default(true),
+    includeMatchedRules: z.boolean().optional().default(false),
+    includeOuterHtml: z.boolean().optional().default(true)
+  })
+  .strict();
+
+export const resourceProbeInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    url: z.string().min(1),
+    includeContent: z.boolean().optional().default(true),
+    includeNetwork: z.boolean().optional().default(true),
+    frameId: z.string().min(1).optional()
+  })
+  .strict();
+
+export const imageProbeInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    url: z.string().min(1),
+    timeoutMs: z.number().int().positive().max(30000).optional().default(5000),
+    includeResourceProbe: z.boolean().optional().default(true)
   })
   .strict();
 

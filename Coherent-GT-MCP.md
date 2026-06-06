@@ -2,7 +2,7 @@
 
 ## Project Summary
 
-CoherentGT MCP is a Dockerized TypeScript MCP server for inspecting, debugging, and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
+CoherentGT MCP is a Dockerized TypeScript MCP server for inspecting, debugging, and controlling live Coherent GT UI views through the Coherent debugger service.
 
 The project exposes stdio and Streamable HTTP MCP transports that can discover Coherent views, send WebKit Inspector commands, inspect DOM/CSS/resources, evaluate runtime JavaScript, interact with the Coherent `engine` bridge, run persistent debugger sessions with breakpoints and call-frame inspection, and capture legacy WebKit profiling telemetry.
 
@@ -33,7 +33,7 @@ MCP client/agent
   -> docker run --rm -i ghcr.io/parallel42/coherent-gt-mcp:latest
     -> http://host.docker.internal:19999/pagelist.json
     -> ws://host.docker.internal:19999/devtools/page/<pageId>
-      -> live Coherent GT/MSFS view
+      -> live Coherent GT view
 ```
 
 Shared HTTP topology:
@@ -44,7 +44,7 @@ MCP client/agent B -> http://127.0.0.1:3333/mcp
   -> docker run -d --name coherent-gt-mcp-shared -p 3333:3333 ...
     -> http://host.docker.internal:19999/pagelist.json
     -> ws://host.docker.internal:19999/devtools/page/<pageId>
-      -> live Coherent GT/MSFS view
+      -> live Coherent GT view
 ```
 
 The host debugger endpoint is normally reachable at `http://127.0.0.1:19999` from Windows. Inside Docker, the same host service must be reached as `http://host.docker.internal:19999`.
@@ -55,7 +55,7 @@ Normal users need:
 
 - Windows with Docker Desktop running Linux containers.
 - A stdio-capable MCP client or a Streamable HTTP-capable MCP client or agent.
-- MSFS running with the Coherent debugger endpoint available on the host.
+- A Coherent GT host running with the Coherent debugger endpoint available on the host.
 
 Docker Desktop installation:
 
@@ -69,7 +69,7 @@ After installing Docker Desktop, restart PowerShell, start Docker Desktop, and v
 docker version
 ```
 
-Verify the Coherent debugger endpoint while MSFS is running:
+Verify the Coherent debugger endpoint while the Coherent GT host is running:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
@@ -194,13 +194,24 @@ Restart the MCP client after changing configuration or pulling a newer image. MC
 | `COHERENT_GT_DEBUGGER_URL` | `http://host.docker.internal:19999` | Base URL for the Coherent debugger service from inside Docker. |
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` | Timeout for debugger HTTP requests such as `/pagelist.json`. |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` | Timeout for WebKit Inspector WebSocket commands. |
-| `COHERENT_GT_MAX_TEXT_BYTES` | `262144` | Maximum JSON text payload size returned through MCP before truncation metadata is emitted. |
+| `COHERENT_GT_MAX_TEXT_BYTES` | `262144` | Hard maximum JSON text payload size returned through MCP. |
+| `COHERENT_GT_INLINE_RESULT_BYTES` | `32768` | Maximum serialized result size returned inline before the full reply is cached and previewed. |
+| `COHERENT_GT_RESULT_PREVIEW_BYTES` | `12000` | Initial preview size for cached oversized replies. |
+| `COHERENT_GT_RESULT_CHUNK_BYTES` | `16000` | Default byte range size for `coherentgt_result_read`. |
+| `COHERENT_GT_HOST_HELPER_URL` | unset | Optional read-only host helper URL for process/log/resource correlation from Docker. |
+| `COHERENT_GT_HOST_HELPER_PROCESS_NAMES` | unset | Comma- or pipe-separated process allowlist queried by the host helper. |
+| `COHERENT_GT_HOST_HELPER_LOG_ROOTS` | unset | Pipe-separated log roots queried by the host helper. |
+| `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS` | unset | Pipe-separated local resource roots queried by the host helper for `coui://` URL correlation. |
 | `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` | Idle shutdown timer for stdio and shared HTTP modes. Set to `0` to disable automatic shutdown. |
 | `COHERENT_GT_HTTP_HOST` | `0.0.0.0` | HTTP bind host when `COHERENT_GT_TRANSPORT=http`. |
 | `COHERENT_GT_HTTP_PORT` | `3333` | HTTP bind port when `COHERENT_GT_TRANSPORT=http`. |
 | `COHERENT_GT_HTTP_PATH` | `/mcp` | Streamable HTTP MCP endpoint path. |
 
 Configuration is normalized at startup. Paths, query strings, fragments, and trailing slashes are stripped from `COHERENT_GT_DEBUGGER_URL` before requests are made.
+
+Oversized tool replies are cached in memory and returned as a small preview with a `resultId`. Use `coherentgt_result_read` to read bounded byte ranges from the cached reply, or `coherentgt_result_search` to find compact match snippets without loading the full payload into the agent context.
+
+Optional host process/log/resource correlation is exposed by `scripts/coherentgt-host-helper.mjs`. Run it on Windows with `npm run host-helper`, configure allowlists with `COHERENT_GT_HOST_HELPER_PROCESS_NAMES`, `COHERENT_GT_HOST_HELPER_LOG_ROOTS`, and `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS`, and point Docker at it with `COHERENT_GT_HOST_HELPER_URL=http://host.docker.internal:3344`.
 
 ## Capability Matrix
 
@@ -209,12 +220,14 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 | Area | Tools | Capability |
 | --- | --- | --- |
 | Connectivity | `coherentgt_health`, `coherentgt_list_views` | Check debugger reachability and enumerate live views from `/pagelist.json`. |
+| Generic diagnostics | `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page` | Normalize page metadata, evaluation results, console/runtime errors, page health, network/WebSocket activity, listener data, and host correlation. |
+| Cached large replies | `coherentgt_result_read`, `coherentgt_result_search` | Read bounded chunks from oversized replies or search cached replies by `resultId`. |
 | Raw inspector access | `coherentgt_inspector_command` | Send any supported WebKit Inspector command to a view as an escape hatch. |
 | Runtime JavaScript | `coherentgt_eval_js` | Evaluate expressions with optional promise awaiting and by-value return behavior. |
 | Coherent engine bridge | `coherentgt_trigger_event`, `coherentgt_call_engine` | Trigger `engine.trigger(...)` events or call `engine.call(...)` functions with JSON-safe arguments. |
-| DOM inspection | `coherentgt_get_document`, `coherentgt_query_selector`, `coherentgt_get_native_document`, `coherentgt_get_outer_html` | Read serialized DOM, query selectors, native DOM trees, and native outer HTML. |
+| DOM inspection | `coherentgt_get_document`, `coherentgt_query_selector`, `coherentgt_get_native_document`, `coherentgt_get_outer_html`, `coherentgt_inspect_selector` | Read serialized DOM, query selectors, native DOM trees, native outer HTML, and one-call selector visibility/style summaries. |
 | CSS inspection and mutation | `coherentgt_get_stylesheets`, `coherentgt_get_stylesheet_text`, `coherentgt_get_matched_styles`, `coherentgt_set_style` | List stylesheets, read CSS text, inspect matched rules, and apply inline styles. |
-| Resource inspection | `coherentgt_get_resource_tree`, `coherentgt_get_resource_content`, `coherentgt_search_resource` | Read the frame/resource tree, fetch loaded resource text, and search resource content. |
+| Resource inspection | `coherentgt_get_resource_tree`, `coherentgt_get_resource_content`, `coherentgt_search_resource`, `coherentgt_probe_resource`, `coherentgt_probe_image` | Read the frame/resource tree, fetch/search resource content, correlate requested resources with network/local metadata, and verify image decode dimensions. |
 | UI interaction and navigation | `coherentgt_click`, `coherentgt_reload_view`, `coherentgt_navigate_view` | Dispatch click events, reload views, and navigate views. |
 | Persistent debugging | `coherentgt_debug_start`, `coherentgt_debug_stop`, `coherentgt_debug_status`, `coherentgt_debug_events`, `coherentgt_debug_command` | Open long-lived inspector sessions, buffer debugger events, and send session-scoped commands. |
 | Script analysis | `coherentgt_debug_list_scripts`, `coherentgt_debug_get_script_source`, `coherentgt_debug_search_script`, `coherentgt_debug_search_all_scripts` | Track parsed scripts, retrieve script source, and search one or many scripts. |
@@ -238,6 +251,18 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Input: `{ refresh?: boolean }`
   - Reads `/pagelist.json`.
   - Output entries include `{ id, title, url, inspectorUrl, websocketUrl }`.
+
+### Cached Large Replies
+
+- `coherentgt_result_read`
+  - Input: `{ resultId: string, offsetBytes?: number, maxBytes?: number }`
+  - Reads a bounded byte range from an oversized tool reply cached in memory.
+  - Output includes total bytes, returned bytes, next offset, and the text chunk.
+
+- `coherentgt_result_search`
+  - Input: `{ resultId: string, query: string, caseSensitive?: boolean, isRegex?: boolean, maxMatches?: number, contextChars?: number }`
+  - Searches an oversized cached reply without returning the full payload.
+  - Output includes compact snippets, match text, line, column, and character offsets.
 
 ### Inspector and Runtime
 
@@ -294,6 +319,12 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Input: `{ pageId: number, selector: string }`
   - Resolves the selector to a native node id and reads matched CSS rules with `CSS.getMatchedStylesForNode`.
 
+- `coherentgt_inspect_selector`
+  - Input: `{ pageId: number, selector: string, includeComputedStyle?: boolean, includeMatchedRules?: boolean, includeOuterHtml?: boolean }`
+  - Uses native WebInspector DOM/CSS domains to return selector existence, node id, outer HTML, computed style, bounding box, visibility summary, and optional matched rules.
+  - Defaults: `includeComputedStyle: true`, `includeMatchedRules: false`, `includeOuterHtml: true`.
+  - The selector is caller-provided; the server does not assume page-specific classes, roots, panels, routes, or globals.
+
 - `coherentgt_set_style`
   - Input: `{ pageId: number, selector: string, styles: Record<string, string> }`
   - Applies inline styles to all matched nodes.
@@ -312,6 +343,16 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Input: `{ pageId: number, url: string, query: string, frameId?: string, caseSensitive?: boolean, isRegex?: boolean }`
   - Uses native WebInspector `Page.searchInResource`.
   - Defaults: `caseSensitive: false`, `isRegex: false`.
+
+- `coherentgt_probe_resource`
+  - Input: `{ pageId: number, url: string, includeContent?: boolean, includeNetwork?: boolean, frameId?: string }`
+  - Reads `Page.getResourceTree`, optionally reads resource content, includes buffered network status when available, and includes host file matches when the host helper is configured with local resource roots.
+  - Defaults: `includeContent: true`, `includeNetwork: true`.
+
+- `coherentgt_probe_image`
+  - Input: `{ pageId: number, url: string, timeoutMs?: number, includeResourceProbe?: boolean }`
+  - Creates a temporary `Image` in the page for the caller-provided URL and reports load/decode result, `naturalWidth`, `naturalHeight`, network status, resource metadata, and verdict.
+  - Defaults: `timeoutMs: 5000`, `includeResourceProbe: true`.
 
 ### Interaction and Navigation
 
@@ -606,17 +647,18 @@ Current unit coverage includes:
 
 Manual acceptance checks:
 
-1. Start MSFS.
+1. Start a Coherent GT host with debugger support enabled.
 2. Confirm the host can open `http://127.0.0.1:19999/pagelist.json`.
 3. Pull `ghcr.io/parallel42/coherent-gt-mcp:latest`.
 4. Run an MCP Inspector or local MCP client against either the Docker stdio command or the shared HTTP endpoint.
 5. Call `coherentgt_health`; expect `reachable: true` and a nonzero page count.
-6. Call `coherentgt_list_views`; expect entries such as `MAIN UI`, `Toolbar`, `ATLAS`, or aircraft/EFB panels depending on the session.
+6. Call `coherentgt_list_views`; expect live Coherent debugger views from the running host.
 7. Call `coherentgt_eval_js` with `document.title`.
-8. Call `coherentgt_query_selector` with `body`.
-9. Call `coherentgt_get_resource_tree` and inspect loaded `coui://` resources.
-10. Start a debugger session with `coherentgt_debug_start`, then list scripts with `coherentgt_debug_list_scripts`.
-11. Use mutating tools only on safe targets, for example applying and then clearing a reversible outline style on `body`.
+8. Call `coherentgt_inspect_selector` with a caller-provided selector such as `body`.
+9. Call `coherentgt_get_resource_tree` and inspect loaded resources.
+10. Call `coherentgt_probe_resource` or `coherentgt_probe_image` for a caller-provided URL from the resource tree.
+11. Start a debugger session with `coherentgt_debug_start`, then list scripts with `coherentgt_debug_list_scripts`.
+12. Use mutating tools only on safe targets, for example applying and then clearing a reversible outline style on a caller-provided selector.
 
 ## Security and Safety
 
@@ -632,15 +674,16 @@ Use the server only with local development targets you control. Treat MCP client
 
 ## Troubleshooting
 
-- If `coherentgt_health` is unreachable, verify MSFS is running and the host endpoint works:
+- If `coherentgt_health` is unreachable, verify the Coherent GT host is running and the debugger endpoint works:
 
   ```powershell
   Invoke-RestMethod http://127.0.0.1:19999/pagelist.json
   ```
 
 - If the endpoint works on the host but fails in Docker, verify the MCP config uses `http://host.docker.internal:19999`, not `http://127.0.0.1:19999`.
-- If views are missing, open or reload the relevant MSFS panel and call `coherentgt_list_views` again.
+- If views are missing, open or reload the relevant Coherent GT view in the host application and call `coherentgt_list_views` again.
 - If native CSS/DOM/resource tools fail, retry with `coherentgt_inspector_command` to check whether that WebInspector domain is supported by the target Coherent build.
+- If `Runtime.evaluate` times out, use native tools such as `coherentgt_inspect_selector`, `coherentgt_get_resource_tree`, and `coherentgt_probe_resource` before retrying runtime evaluation. Normalized evaluation tools return `likelyCause: "main-thread-busy"` when the timeout fits that pattern.
 - If persistent debugger tools report no active session, call `coherentgt_debug_start` for that `pageId` first.
 - If a stdio or shared HTTP container exits after being idle, increase `COHERENT_GT_IDLE_TIMEOUT_MS` or set it to `0`.
 - If HTTP clients cannot connect, verify the shared container is running and `Invoke-RestMethod http://127.0.0.1:3333/health` succeeds.

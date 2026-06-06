@@ -1,6 +1,6 @@
 # CoherentGT MCP
 
-Dockerized MCP server for inspecting and controlling live Coherent GT/MSFS UI views through the Coherent debugger service.
+Dockerized MCP server for inspecting and controlling live Coherent GT UI views through the Coherent debugger service.
 
 - Host debugger: `http://127.0.0.1:19999/pagelist.json`
 - Docker debugger URL: `http://host.docker.internal:19999`
@@ -23,7 +23,7 @@ Verify Docker:
 docker version
 ```
 
-### 2. Start MSFS
+### 2. Start A Coherent GT Host
 
 Verify the Coherent debugger endpoint:
 
@@ -149,6 +149,13 @@ Restart the agent after pulling the new image. MCP clients usually cache tool me
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` |
+| `COHERENT_GT_INLINE_RESULT_BYTES` | `32768` |
+| `COHERENT_GT_RESULT_PREVIEW_BYTES` | `12000` |
+| `COHERENT_GT_RESULT_CHUNK_BYTES` | `16000` |
+| `COHERENT_GT_HOST_HELPER_URL` | unset |
+| `COHERENT_GT_HOST_HELPER_PROCESS_NAMES` | unset |
+| `COHERENT_GT_HOST_HELPER_LOG_ROOTS` | unset |
+| `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS` | unset |
 | `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` |
 | `COHERENT_GT_HTTP_HOST` | `0.0.0.0` |
 | `COHERENT_GT_HTTP_PORT` | `3333` |
@@ -156,11 +163,25 @@ Restart the agent after pulling the new image. MCP clients usually cache tool me
 
 `COHERENT_GT_DEBUGGER_URL` uses `host.docker.internal` because the server runs inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio and shared HTTP modes and defaults to 50 minutes; set it to `0` to disable automatic shutdown.
 
+Oversized tool replies are cached in memory and returned as a small preview with a `resultId`. Use `coherentgt_result_read` to read bounded byte ranges from the cached reply, or `coherentgt_result_search` to find compact match snippets without loading the full payload into the agent context. `COHERENT_GT_INLINE_RESULT_BYTES` controls when this kicks in, `COHERENT_GT_RESULT_PREVIEW_BYTES` controls the initial preview size, and `COHERENT_GT_RESULT_CHUNK_BYTES` controls the default follow-up read size.
+
+Optional host process/log/resource correlation is available through a read-only Windows helper:
+
+```powershell
+$env:COHERENT_GT_HOST_HELPER_LOG_ROOTS = "C:\Path\To\Logs|D:\OtherLogs"
+$env:COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS = "C:\Path\To\Resources|D:\OtherResources"
+npm run host-helper
+```
+
+Point the Docker MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://host.docker.internal:3344`. Process names, log roots, and local resource roots are allowlists; when the helper is not configured, diagnostic tools return an explicit unavailable reason.
+
 ## Tools
 
 - Health/views: `coherentgt_health`, `coherentgt_list_views`
+- Generic diagnostics: `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page`
+- Cached large replies: `coherentgt_result_read`, `coherentgt_result_search`
 - Runtime/control: JavaScript eval, engine calls/events, clicks, reloads, and navigation
-- DOM/CSS/resources: document, selector, style, stylesheet, resource, and native inspector helpers
+- DOM/CSS/resources: document, selector, style, stylesheet, resource, native inspector helpers, `coherentgt_inspect_selector`, `coherentgt_probe_resource`, and `coherentgt_probe_image`
 - Debugger: persistent debug sessions, script search, breakpoints, pause/resume, stepping, and call-frame evaluation
 - Profiling: capabilities guidance, legacy timeline/script/network/heap/layer captures, compact summaries, raw payload lookup, and paint/compositing overlays
 
@@ -176,6 +197,19 @@ coherentgt_profile_raw({ "pageId": 31, "rawId": "<rawId from summary>" })
 Use focused tools such as `coherentgt_timeline_start`, `coherentgt_network_capture_start`, `coherentgt_heap_snapshot`, and `coherentgt_set_paint_rects_visible` when you only need one diagnostic surface.
 
 Agent note: this is a Coherent GT legacy WebKit Inspector target, not modern Chrome DevTools. Agents should use `coherentgt_profile_capabilities` and the profiling tools above instead of probing Chrome-only domains such as `Performance`, `Profiler`, `Tracing`, `HeapProfiler`, `DOMSnapshot`, or `Runtime.getHeapUsage`. If an agent only sees structural/runtime tools and no `coherentgt_capture_all_start`, restart that agent session so it reloads the MCP tool list.
+
+Generic triage flow:
+
+```text
+1. coherentgt_list_pages with title/url filters that identify the target Coherent page.
+2. coherentgt_diagnose_page with caller-provided selectors and suspect JS/CSS/image URLs.
+3. coherentgt_inspect_selector for a caller-provided selector.
+4. coherentgt_probe_resource for loaded JS/CSS and suspect coui:// resources.
+5. coherentgt_probe_image for image decode verification.
+6. Use mutating tools such as coherentgt_reload_view, coherentgt_navigate_view, coherentgt_click, or coherentgt_trigger_event only when the caller supplies selectors, URLs, or engine events.
+```
+
+When `Runtime.evaluate` times out, normalized tools return structured timeout metadata with `likelyCause: "main-thread-busy"` where possible. Prefer native DOM/CSS/resource tools before retrying runtime evaluation.
 
 ## Security
 

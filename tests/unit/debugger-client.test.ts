@@ -30,6 +30,22 @@ describe("config URL normalization", () => {
     });
   });
 
+  it("loads host helper settings for Docker host correlation", () => {
+    expect(
+      loadConfig({
+        COHERENT_GT_HOST_HELPER_URL: "http://127.0.0.1:3344/",
+        COHERENT_GT_HOST_HELPER_PROCESS_NAMES: "CoherentHost, CoherentRuntime",
+        COHERENT_GT_HOST_HELPER_LOG_ROOTS: "C:\\Logs|D:\\Logs",
+        COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS: "C:\\CoherentResources|D:\\CoherentResources"
+      })
+    ).toMatchObject({
+      hostHelperUrl: "http://127.0.0.1:3344",
+      hostHelperProcessNames: ["CoherentHost", "CoherentRuntime"],
+      hostHelperLogRoots: ["C:\\Logs", "D:\\Logs"],
+      hostHelperResourceRoots: ["C:\\CoherentResources", "D:\\CoherentResources"]
+    });
+  });
+
   it("allows disabling idle shutdown", () => {
     expect(loadConfig({ COHERENT_GT_IDLE_TIMEOUT_MS: "0" }).idleTimeoutMs).toBe(0);
   });

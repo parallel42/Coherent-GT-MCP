@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   captureAllStartInputSchema,
+  consoleSnapshotInputSchema,
+  diagnosePageInputSchema,
   debugSetBreakpointByUrlInputSchema,
   debugStartInputSchema,
+  evaluateInputSchema,
+  eventListenersInputSchema,
   evalJsInputSchema,
+  imageProbeInputSchema,
+  inspectSelectorInputSchema,
+  listPagesInputSchema,
+  networkSnapshotInputSchema,
+  pageHealthInputSchema,
   inspectorCommandInputSchema,
   layerTreeInputSchema,
   navigateViewInputSchema,
@@ -12,7 +21,12 @@ import {
   profileEventsInputSchema,
   profileRawInputSchema,
   profileStartInputSchema,
+  resultReadInputSchema,
+  resultSearchInputSchema,
+  runtimeErrorsInputSchema,
+  traceEventsInputSchema,
   resourceContentInputSchema,
+  resourceProbeInputSchema,
   resourceSearchInputSchema,
   setStyleInputSchema,
   visualOverlayInputSchema
@@ -30,6 +44,67 @@ describe("tool schemas", () => {
       pageId: 1,
       method: "Runtime.evaluate",
       params: { expression: "document.title" }
+    });
+  });
+
+  it("accepts generic diagnostic inputs with defaults", () => {
+    expect(
+      listPagesInputSchema.parse({
+        titleContains: "main"
+      })
+    ).toEqual({
+      titleContains: "main"
+    });
+
+    expect(
+      evaluateInputSchema.parse({
+        pageId: 2,
+        expression: "document.title"
+      })
+    ).toEqual({
+      pageId: 2,
+      expression: "document.title",
+      awaitPromise: true,
+      returnByValue: true,
+      risk: "unknown"
+    });
+
+    expect(consoleSnapshotInputSchema.parse({ pageId: 2 })).toEqual({
+      pageId: 2,
+      levels: ["error", "warning"],
+      maxEvents: 50
+    });
+
+    expect(runtimeErrorsInputSchema.parse({ pageId: 2 })).toEqual({
+      pageId: 2,
+      maxEvents: 50
+    });
+
+    expect(pageHealthInputSchema.parse({ pageId: 2 })).toEqual({
+      pageId: 2,
+      sampleMs: 750
+    });
+
+    expect(networkSnapshotInputSchema.parse({ pageId: 2 })).toEqual({
+      pageId: 2,
+      maxEvents: 500,
+      maxPayloadChars: 240
+    });
+
+    expect(eventListenersInputSchema.parse({ pageId: 2 })).toEqual({
+      pageId: 2,
+      selector: "document"
+    });
+
+    expect(traceEventsInputSchema.parse({ pageId: 2 })).toEqual({
+      pageId: 2,
+      timeoutMs: 1000,
+      maxEvents: 100
+    });
+
+    expect(diagnosePageInputSchema.parse({})).toEqual({
+      sampleMs: 750,
+      consoleLevels: ["error", "warning"]
     });
   });
 
@@ -73,25 +148,78 @@ describe("tool schemas", () => {
     expect(
       resourceContentInputSchema.parse({
         pageId: 30,
-        url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.html"
+        url: "coui://example/resources/view.html"
       })
     ).toEqual({
       pageId: 30,
-      url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.html"
+      url: "coui://example/resources/view.html"
     });
 
     expect(
       resourceSearchInputSchema.parse({
         pageId: 30,
-        url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.html",
-        query: "Flow"
+        url: "coui://example/resources/view.html",
+        query: "needle"
       })
     ).toEqual({
       pageId: 30,
-      url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.html",
-      query: "Flow",
+      url: "coui://example/resources/view.html",
+      query: "needle",
       caseSensitive: false,
       isRegex: false
+    });
+  });
+
+  it("accepts generic selector and resource probe inputs", () => {
+    expect(
+      inspectSelectorInputSchema.parse({
+        pageId: 30,
+        selector: "body",
+        includeMatchedRules: true
+      })
+    ).toEqual({
+      pageId: 30,
+      selector: "body",
+      includeComputedStyle: true,
+      includeMatchedRules: true,
+      includeOuterHtml: true
+    });
+
+    expect(
+      resourceProbeInputSchema.parse({
+        pageId: 30,
+        url: "coui://example/assets/icon.png"
+      })
+    ).toEqual({
+      pageId: 30,
+      url: "coui://example/assets/icon.png",
+      includeContent: true,
+      includeNetwork: true
+    });
+
+    expect(imageProbeInputSchema.parse({ pageId: 30, url: "coui://example/assets/icon.png" })).toEqual({
+      pageId: 30,
+      url: "coui://example/assets/icon.png",
+      timeoutMs: 5000,
+      includeResourceProbe: true
+    });
+  });
+
+  it("accepts requested probes on page diagnostics", () => {
+    expect(
+      diagnosePageInputSchema.parse({
+        pageId: 30,
+        selectors: ["body"],
+        resources: ["coui://example/assets/app.js"],
+        images: ["coui://example/assets/icon.png"]
+      })
+    ).toEqual({
+      pageId: 30,
+      sampleMs: 750,
+      consoleLevels: ["error", "warning"],
+      selectors: ["body"],
+      resources: ["coui://example/assets/app.js"],
+      images: ["coui://example/assets/icon.png"]
     });
   });
 
@@ -120,12 +248,12 @@ describe("tool schemas", () => {
     expect(
       debugSetBreakpointByUrlInputSchema.parse({
         pageId: 30,
-        url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.js",
+        url: "coui://example/resources/script.js",
         lineNumber: 0
       })
     ).toEqual({
       pageId: 30,
-      url: "coui://html_UI/ingamePanels/P42Flow/P42Flow.js",
+      url: "coui://example/resources/script.js",
       lineNumber: 0,
       columnNumber: 0
     });
@@ -162,6 +290,32 @@ describe("tool schemas", () => {
   it("accepts profiling capabilities input only as an empty object", () => {
     expect(profileCapabilitiesInputSchema.parse({})).toEqual({});
     expect(() => profileCapabilitiesInputSchema.parse({ pageId: 31 })).toThrow();
+  });
+
+  it("accepts cached result read and search inputs", () => {
+    expect(
+      resultReadInputSchema.parse({
+        resultId: "result_abc",
+        offsetBytes: 10
+      })
+    ).toEqual({
+      resultId: "result_abc",
+      offsetBytes: 10
+    });
+
+    expect(
+      resultSearchInputSchema.parse({
+        resultId: "result_abc",
+        query: "needle"
+      })
+    ).toEqual({
+      resultId: "result_abc",
+      query: "needle",
+      caseSensitive: false,
+      isRegex: false,
+      maxMatches: 20,
+      contextChars: 160
+    });
   });
 
   it("accepts profiling event and raw payload reads", () => {

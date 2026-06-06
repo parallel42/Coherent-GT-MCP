@@ -3,7 +3,7 @@ import { buildSetStyleExpression } from "../../src/tools/css.js";
 import { buildQuerySelectorExpression } from "../../src/tools/dom.js";
 import { buildClickExpression } from "../../src/tools/events.js";
 import { buildEngineCallExpression, buildEngineTriggerExpression } from "../../src/tools/runtime.js";
-import { jsonToolResult } from "../../src/tools/result.js";
+import { jsonToolResult, ToolResultStore } from "../../src/tools/result.js";
 
 describe("generated JavaScript snippets", () => {
   it("escapes engine trigger arguments through JSON.stringify", () => {
@@ -58,6 +58,60 @@ describe("generated JavaScript snippets", () => {
     expect(JSON.parse(text)).toMatchObject({
       truncated: true,
       maxTextBytes: 50
+    });
+  });
+
+  it("caches oversized JSON tool results with read and search affordances", () => {
+    const store = new ToolResultStore();
+    const result = jsonToolResult(
+      {
+        value: `alpha ${"x".repeat(200)} omega`
+      },
+      1000,
+      {
+        resultStore: store,
+        inlineMaxBytes: 80,
+        previewBytes: 30
+      }
+    );
+    const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    const payload = JSON.parse(text);
+
+    expect(payload).toMatchObject({
+      partial: true,
+      originalBytes: expect.any(Number),
+      next: {
+        read: {
+          tool: "coherentgt_result_read"
+        },
+        search: {
+          tool: "coherentgt_result_search"
+        }
+      }
+    });
+    expect(payload.resultId).toMatch(/^result_/);
+
+    expect(store.read({ resultId: payload.resultId, offsetBytes: payload.previewBytes, maxBytes: 40 })).toMatchObject({
+      resultId: payload.resultId,
+      totalBytes: payload.originalBytes,
+      returnedBytes: expect.any(Number)
+    });
+
+    expect(
+      store.search({
+        resultId: payload.resultId,
+        query: "omega",
+        maxMatches: 5,
+        contextChars: 20
+      })
+    ).toMatchObject({
+      resultId: payload.resultId,
+      returnedMatches: 1,
+      matches: [
+        {
+          matchText: "omega"
+        }
+      ]
     });
   });
 });
