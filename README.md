@@ -73,7 +73,7 @@ Codex TOML:
 url = "http://127.0.0.1:3333/mcp"
 ```
 
-All Codex sessions that use this URL connect to the same container and share persistent debugger session state. Check the shared server with:
+All active Codex sessions that use this URL connect to the same container and share persistent debugger session state. When the last MCP HTTP session disconnects, the server closes retained Coherent WebInspector sockets so the standalone Coherent Debugger can attach. Check the shared server with:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:3333/health
@@ -180,6 +180,7 @@ Point the Docker MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://host.
 - Health/views: `coherentgt_health`, `coherentgt_list_views`
 - Generic diagnostics: `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page`
 - Cached large replies: `coherentgt_result_read`, `coherentgt_result_search`
+- Session cleanup: `coherentgt_release_page`, `coherentgt_release_all`
 - Runtime/control: JavaScript eval, engine calls/events, clicks, reloads, and navigation
 - DOM/CSS/resources: document, selector, style, stylesheet, resource, native inspector helpers, `coherentgt_inspect_selector`, `coherentgt_probe_resource`, and `coherentgt_probe_image`
 - Debugger: persistent debug sessions, script search, breakpoints, pause/resume, stepping, and call-frame evaluation
@@ -210,6 +211,8 @@ Generic triage flow:
 ```
 
 When `Runtime.evaluate` times out, normalized tools return structured timeout metadata with `likelyCause: "main-thread-busy"` where possible. Prefer native DOM/CSS/resource tools before retrying runtime evaluation.
+
+If you need to attach the standalone Coherent Debugger while the MCP client is still running, call `coherentgt_release_page` for the page or `coherentgt_release_all` for every retained page socket. Resource and image probes close their internal diagnostic network lookup socket automatically after the probe completes.
 
 ## Security
 

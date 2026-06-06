@@ -73,6 +73,8 @@ import {
   profileStatusInputSchema,
   profileStopInputSchema,
   querySelectorInputSchema,
+  releaseAllInputSchema,
+  releasePageInputSchema,
   reloadViewInputSchema,
   resultReadInputSchema,
   resultSearchInputSchema,
@@ -96,6 +98,7 @@ import { buildClickExpression } from "./tools/events.js";
 import { jsonToolResult, ToolResultStore } from "./tools/result.js";
 import { ProfilingSessionManager } from "./tools/profiling.js";
 import { buildEngineCallExpression, buildEngineTriggerExpression, runtimeEvaluateParams } from "./tools/runtime.js";
+import { releaseAllSessions, releasePageSessions } from "./tools/session-release.js";
 
 export type McpSharedState = {
   debuggerClient: CoherentDebuggerClient;
@@ -213,6 +216,29 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
           contextChars: args.contextChars
         })
       )
+  );
+
+  server.registerTool(
+    "coherentgt_release_page",
+    {
+      title: "Release Page Sessions",
+      description:
+        "Close MCP-retained debugger, profiling, and diagnostic WebInspector sockets for one Coherent GT page so external debugger clients can attach.",
+      inputSchema: releasePageInputSchema
+    },
+    async (args: z.infer<typeof releasePageInputSchema>) =>
+      run(() => releasePageSessions({ debugSessions, profilingSessions, diagnosticSessions }, args.pageId))
+  );
+
+  server.registerTool(
+    "coherentgt_release_all",
+    {
+      title: "Release All Sessions",
+      description:
+        "Close all MCP-retained debugger, profiling, and diagnostic WebInspector sockets so external debugger clients can attach.",
+      inputSchema: releaseAllInputSchema
+    },
+    async () => run(() => releaseAllSessions({ debugSessions, profilingSessions, diagnosticSessions }))
   );
 
   server.registerTool(
@@ -851,7 +877,9 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
             includeContent: args.includeContent,
             includeNetwork: args.includeNetwork,
             frameId: args.frameId,
-            network: args.includeNetwork ? await diagnosticSessions.networkForUrl(args.pageId, args.url) : undefined
+            network: args.includeNetwork
+              ? await diagnosticSessions.networkForUrl(args.pageId, args.url, { releaseAfter: true })
+              : undefined
           }
         )
       )
@@ -883,7 +911,7 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
             url: args.url,
             timeoutMs: args.timeoutMs,
             includeResourceProbe: args.includeResourceProbe,
-            network: await diagnosticSessions.networkForUrl(args.pageId, args.url)
+            network: await diagnosticSessions.networkForUrl(args.pageId, args.url, { releaseAfter: true })
           }
         )
       )

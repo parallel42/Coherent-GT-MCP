@@ -20,6 +20,8 @@ import {
   profileCapabilitiesInputSchema,
   profileEventsInputSchema,
   profileRawInputSchema,
+  releaseAllInputSchema,
+  releasePageInputSchema,
   profileStartInputSchema,
   resultReadInputSchema,
   resultSearchInputSchema,
@@ -316,6 +318,12 @@ describe("tool schemas", () => {
       maxMatches: 20,
       contextChars: 160
     });
+  });
+
+  it("accepts persistent session release inputs", () => {
+    expect(releasePageInputSchema.parse({ pageId: 31 })).toEqual({ pageId: 31 });
+    expect(releaseAllInputSchema.parse({})).toEqual({});
+    expect(() => releaseAllInputSchema.parse({ pageId: 31 })).toThrow();
   });
 
   it("accepts profiling event and raw payload reads", () => {

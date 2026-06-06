@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InspectorEvent } from "../../src/coherent/protocol.js";
 import {
+  ProfilingSessionManager,
   buildHeapSummary,
   buildLayerSummary,
   buildNetworkWaterfall,
@@ -10,6 +11,21 @@ import {
 } from "../../src/tools/profiling.js";
 
 describe("profiling summaries", () => {
+  it("releases a profiling session for a page", () => {
+    const manager = new ProfilingSessionManager({
+      debuggerUrl: "http://host.docker.internal:19999",
+      timeoutMs: 1000
+    });
+    const closed: number[] = [];
+    (manager as unknown as { sessions: Map<number, unknown> }).sessions.set(9, {
+      close: () => closed.push(9)
+    });
+
+    expect(manager.release(9)).toEqual({ pageId: 9, released: true });
+    expect(closed).toEqual([9]);
+    expect(manager.status(9)).toEqual({ pageId: 9, open: false });
+  });
+
   it("aggregates network events into waterfall rows", () => {
     const events: InspectorEvent[] = [
       {

@@ -127,7 +127,7 @@ Codex TOML:
 url = "http://127.0.0.1:3333/mcp"
 ```
 
-All Codex sessions using that URL connect to the same container. Persistent debugger/profiling sessions, tracked scripts, retained profiling payloads, and MCP-created breakpoints are shared through the long-running process.
+All active Codex sessions using that URL connect to the same container. Persistent debugger/profiling sessions, tracked scripts, retained profiling payloads, and MCP-created breakpoints are shared through the long-running process. When the last MCP HTTP session disconnects, retained Coherent WebInspector sockets are closed so the standalone Coherent Debugger can attach without waiting for container idle shutdown.
 
 Health check:
 
@@ -220,6 +220,7 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 | Area | Tools | Capability |
 | --- | --- | --- |
 | Connectivity | `coherentgt_health`, `coherentgt_list_views` | Check debugger reachability and enumerate live views from `/pagelist.json`. |
+| Session cleanup | `coherentgt_release_page`, `coherentgt_release_all` | Close MCP-retained WebInspector sockets for one page or all pages. |
 | Generic diagnostics | `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page` | Normalize page metadata, evaluation results, console/runtime errors, page health, network/WebSocket activity, listener data, and host correlation. |
 | Cached large replies | `coherentgt_result_read`, `coherentgt_result_search` | Read bounded chunks from oversized replies or search cached replies by `resultId`. |
 | Raw inspector access | `coherentgt_inspector_command` | Send any supported WebKit Inspector command to a view as an escape hatch. |
@@ -251,6 +252,15 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Input: `{ refresh?: boolean }`
   - Reads `/pagelist.json`.
   - Output entries include `{ id, title, url, inspectorUrl, websocketUrl }`.
+
+- `coherentgt_release_page`
+  - Input: `{ pageId: number }`
+  - Closes MCP-retained debugger, profiling, and diagnostic WebInspector sockets for one page.
+  - Use before attaching the standalone Coherent Debugger while the MCP client is still running.
+
+- `coherentgt_release_all`
+  - Input: `{}`
+  - Closes all MCP-retained debugger, profiling, and diagnostic WebInspector sockets.
 
 ### Cached Large Replies
 
@@ -348,11 +358,13 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Input: `{ pageId: number, url: string, includeContent?: boolean, includeNetwork?: boolean, frameId?: string }`
   - Reads `Page.getResourceTree`, optionally reads resource content, includes buffered network status when available, and includes host file matches when the host helper is configured with local resource roots.
   - Defaults: `includeContent: true`, `includeNetwork: true`.
+  - Any diagnostic socket opened only to read buffered network status is closed before the tool returns.
 
 - `coherentgt_probe_image`
   - Input: `{ pageId: number, url: string, timeoutMs?: number, includeResourceProbe?: boolean }`
   - Creates a temporary `Image` in the page for the caller-provided URL and reports load/decode result, `naturalWidth`, `naturalHeight`, network status, resource metadata, and verdict.
   - Defaults: `timeoutMs: 5000`, `includeResourceProbe: true`.
+  - Any diagnostic socket opened only to read buffered network status is closed before the tool returns.
 
 ### Interaction and Navigation
 

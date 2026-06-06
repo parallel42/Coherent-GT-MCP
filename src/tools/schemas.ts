@@ -27,6 +27,14 @@ export const resultSearchInputSchema = z
   })
   .strict();
 
+export const releasePageInputSchema = z
+  .object({
+    pageId: pageIdSchema
+  })
+  .strict();
+
+export const releaseAllInputSchema = z.object({}).strict();
+
 export const listViewsInputSchema = z
   .object({
     refresh: z.boolean().optional()

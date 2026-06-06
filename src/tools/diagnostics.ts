@@ -146,54 +146,91 @@ export class DiagnosticSessionManager {
       images?: string[] | undefined;
     }
   ): Promise<unknown> {
-    const views = await client.listViews();
-    const page = selectPage(this.options.debuggerUrl, views, input.pageId, input.pageFilter);
-    const session = await this.ready(page.id);
-    const [health, resourceTree, hostCorrelation] = await Promise.all([
-      this.pageHealth(page.id, { sampleMs: input.sampleMs, globalProbes: input.globalProbes }).catch((error) => ({
-        pageId: page.id,
-        health: normalizeInspectorError(error, { method: "Runtime.evaluate", timeoutMs: this.options.timeoutMs })
-      })),
-      session.tryCommand("Page.getResourceTree"),
-      queryHostCorrelation(this.options.hostCorrelation)
-    ]);
-    const events = session.listEvents({ maxEvents: 1000 });
-    const consoleSummary = summarizeConsoleEvents(events, { levels: input.consoleLevels, maxEvents: 50 });
-    const runtimeErrors = summarizeRuntimeErrors(events, { maxEvents: 50 });
-    const network = summarizeNetworkEvents(events, { maxPayloadChars: 240 });
-    const resourceSummary = summarizeResourceTree(resourceTree.ok ? resourceTree.result : undefined);
-    const selectors = await Promise.all((input.selectors ?? []).map((selector) => this.inspectSelectorProbe(page.id, selector)));
-    const resourceProbes = await Promise.all((input.resources ?? []).map((url) => this.resourceProbe(page.id, url)));
-    const imageProbes = await Promise.all((input.images ?? []).map((url) => this.imageProbe(page.id, url)));
+    let selectedPageId: number | undefined;
+    try {
+      const views = await client.listViews();
+      const page = selectPage(this.options.debuggerUrl, views, input.pageId, input.pageFilter);
+      selectedPageId = page.id;
+      const session = await this.ready(page.id);
+      const [health, resourceTree, hostCorrelation] = await Promise.all([
+        this.pageHealth(page.id, { sampleMs: input.sampleMs, globalProbes: input.globalProbes }).catch((error) => ({
+          pageId: page.id,
+          health: normalizeInspectorError(error, { method: "Runtime.evaluate", timeoutMs: this.options.timeoutMs })
+        })),
+        session.tryCommand("Page.getResourceTree"),
+        queryHostCorrelation(this.options.hostCorrelation)
+      ]);
+      const events = session.listEvents({ maxEvents: 1000 });
+      const consoleSummary = summarizeConsoleEvents(events, { levels: input.consoleLevels, maxEvents: 50 });
+      const runtimeErrors = summarizeRuntimeErrors(events, { maxEvents: 50 });
+      const network = summarizeNetworkEvents(events, { maxPayloadChars: 240 });
+      const resourceSummary = summarizeResourceTree(resourceTree.ok ? resourceTree.result : undefined);
+      const selectors = await Promise.all((input.selectors ?? []).map((selector) => this.inspectSelectorProbe(page.id, selector)));
+      const resourceProbes = await Promise.all((input.resources ?? []).map((url) => this.resourceProbe(page.id, url)));
+      const imageProbes = await Promise.all((input.images ?? []).map((url) => this.imageProbe(page.id, url)));
 
-    return {
-      page,
-      console: consoleSummary,
-      runtimeErrors,
-      health,
-      resources: resourceSummary,
-      network,
-      listeners: {
-        observedEventCount: events.length,
-        supported: session.supportedCommands()
-      },
-      hostCorrelation,
-      selectors,
-      resourceProbes,
-      imageProbes,
-      runtime: runtimeStatus(health),
-      likelyCauses: buildLikelyCauses(consoleSummary, runtimeErrors, health, network, {
+      return {
+        page,
+        console: consoleSummary,
+        runtimeErrors,
+        health,
+        resources: resourceSummary,
+        network,
+        listeners: {
+          observedEventCount: events.length,
+          supported: session.supportedCommands()
+        },
+        hostCorrelation,
         selectors,
         resourceProbes,
-        imageProbes
-      })
-    };
+        imageProbes,
+        runtime: runtimeStatus(health),
+        likelyCauses: buildLikelyCauses(consoleSummary, runtimeErrors, health, network, {
+          selectors,
+          resourceProbes,
+          imageProbes
+        })
+      };
+    } finally {
+      if (selectedPageId !== undefined) {
+        this.release(selectedPageId);
+      }
+    }
   }
 
-  async networkForUrl(pageId: number, url: string): Promise<Record<string, unknown> | undefined> {
-    const session = await this.ready(pageId);
-    const summary = summarizeNetworkEvents(session.listEvents({ maxEvents: 5000 }), { maxPayloadChars: 240 });
-    return summary.requests.find((entry) => readRecord(entry).url === url) as Record<string, unknown> | undefined;
+  async networkForUrl(
+    pageId: number,
+    url: string,
+    options: { releaseAfter?: boolean | undefined } = {}
+  ): Promise<Record<string, unknown> | undefined> {
+    try {
+      const session = await this.ready(pageId);
+      const summary = summarizeNetworkEvents(session.listEvents({ maxEvents: 5000 }), { maxPayloadChars: 240 });
+      return summary.requests.find((entry) => readRecord(entry).url === url) as Record<string, unknown> | undefined;
+    } finally {
+      if (options.releaseAfter) {
+        this.release(pageId);
+      }
+    }
+  }
+
+  release(pageId: number): unknown {
+    const session = this.sessions.get(pageId);
+    if (!session) {
+      return { pageId, released: false, reason: "No active diagnostic session" };
+    }
+
+    session.close();
+    this.sessions.delete(pageId);
+    return { pageId, released: true };
+  }
+
+  status(pageId?: number | undefined): unknown {
+    if (pageId !== undefined) {
+      return this.sessions.get(pageId)?.status() ?? { pageId, open: false };
+    }
+
+    return [...this.sessions.values()].map((session) => session.status());
   }
 
   stopAll(): unknown {

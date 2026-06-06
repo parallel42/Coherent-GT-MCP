@@ -75,6 +75,17 @@ export class ProfilingSessionManager {
     return [...this.sessions.values()].map((session) => session.status());
   }
 
+  release(pageId: number): unknown {
+    const session = this.sessions.get(pageId);
+    if (!session) {
+      return { pageId, released: false, reason: "No active profiling session" };
+    }
+
+    session.close();
+    this.sessions.delete(pageId);
+    return { pageId, released: true };
+  }
+
   events(pageId: number, options: EventListOptions): unknown {
     return this.require(pageId).events(options);
   }

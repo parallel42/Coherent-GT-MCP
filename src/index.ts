@@ -6,6 +6,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { loadConfig } from "./config.js";
 import { createMcpServer, createMcpSharedState } from "./mcp-server.js";
+import { releaseAllSessions } from "./tools/session-release.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -19,9 +20,7 @@ async function main(): Promise<void> {
   const server = createMcpServer(config, {
     state,
     onIdle: async () => {
-      state.debugSessions.stopAll();
-      state.profilingSessions.stopAll();
-      state.diagnosticSessions.stopAll();
+      releaseAllSessions(state);
       console.error(`coherent-gt-mcp exiting after ${config.idleTimeoutMs}ms without tool calls`);
       await server.close();
       process.exit(0);
@@ -46,9 +45,7 @@ async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<voi
       await server.close();
     }
     sessions.clear();
-    sharedState.debugSessions.stopAll();
-    sharedState.profilingSessions.stopAll();
-    sharedState.diagnosticSessions.stopAll();
+    releaseAllSessions(sharedState);
     httpServer.close();
   };
 
@@ -113,6 +110,9 @@ async function runHttpServer(config: ReturnType<typeof loadConfig>): Promise<voi
           if (sessionId) {
             sessions.delete(sessionId);
             console.error(`coherent-gt-mcp HTTP session closed: ${sessionId}`);
+          }
+          if (sessions.size === 0) {
+            releaseAllSessions(sharedState);
           }
         };
 

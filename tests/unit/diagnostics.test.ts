@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiagnosticEvent } from "../../src/tools/diagnostics.js";
 import {
+  DiagnosticSessionManager,
   buildEventListenerProbeExpression,
   buildPageHealthExpression,
   buildRuntimeProbeExpression,
@@ -11,6 +12,65 @@ import {
 } from "../../src/tools/diagnostics.js";
 
 describe("diagnostic helpers", () => {
+  it("releases a diagnostic session for a page", () => {
+    const manager = new DiagnosticSessionManager({
+      debuggerUrl: "http://host.docker.internal:19999",
+      timeoutMs: 1000,
+      hostCorrelation: {
+        hostHelperUrl: null,
+        processNames: [],
+        logRoots: [],
+        resourceRoots: []
+      }
+    });
+    const closed: number[] = [];
+    (manager as unknown as { sessions: Map<number, unknown> }).sessions.set(7, {
+      close: () => closed.push(7)
+    });
+
+    expect(manager.release(7)).toEqual({ pageId: 7, released: true });
+    expect(closed).toEqual([7]);
+    expect(manager.status(7)).toEqual({ pageId: 7, open: false });
+  });
+
+  it("can release the diagnostic session after a transient network lookup", async () => {
+    const manager = new DiagnosticSessionManager({
+      debuggerUrl: "http://host.docker.internal:19999",
+      timeoutMs: 1000,
+      hostCorrelation: {
+        hostHelperUrl: null,
+        processNames: [],
+        logRoots: [],
+        resourceRoots: []
+      }
+    });
+    const closed: number[] = [];
+    (manager as unknown as { sessions: Map<number, unknown> }).sessions.set(8, {
+      isOpen: true,
+      ensureOpen: async () => {},
+      listEvents: () => [
+        {
+          sequence: 1,
+          timestamp: "2026-06-06T00:00:00.000Z",
+          method: "Network.requestWillBeSent",
+          rawId: "event:1",
+          params: {
+            requestId: "req-1",
+            request: { url: "coui://example/app.js", method: "GET" }
+          }
+        }
+      ],
+      close: () => closed.push(8),
+      status: () => ({ pageId: 8, open: true })
+    });
+
+    await expect(manager.networkForUrl(8, "coui://example/app.js", { releaseAfter: true })).resolves.toMatchObject({
+      url: "coui://example/app.js"
+    });
+    expect(closed).toEqual([8]);
+    expect(manager.status(8)).toEqual({ pageId: 8, open: false });
+  });
+
   it("builds old-WebKit-compatible page health probes", () => {
     const expression = buildPageHealthExpression(250);
 
