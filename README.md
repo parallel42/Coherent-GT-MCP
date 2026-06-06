@@ -134,7 +134,7 @@ Point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:33
 - Session cleanup: `coherentgt_release_page`, `coherentgt_release_all`
 - Runtime/control: JavaScript eval, engine calls/events, clicks, reloads, and navigation
 - DOM/CSS/resources: document, selector, style, stylesheet, resource, native inspector helpers, `coherentgt_inspect_selector`, `coherentgt_probe_resource`, and `coherentgt_probe_image`
-- Debugger: persistent debug sessions, script search, breakpoints, pause/resume, stepping, and call-frame evaluation
+- Debugger: persistent debug sessions, script search, breakpoints, pause/resume, stepping, and call-frame evaluation. These are target-dependent and can be fragile in Coherent; prefer lightweight DOM/runtime/resource probes unless a breakpoint session is explicitly needed.
 - Profiling: capabilities guidance, legacy timeline/script/network/heap/layer captures, compact summaries, raw payload lookup, and paint/compositing overlays
 
 Quick profiling flow:
@@ -148,7 +148,7 @@ coherentgt_profile_raw({ "pageId": 31, "rawId": "<rawId from summary>" })
 
 Use focused tools such as `coherentgt_timeline_start`, `coherentgt_network_capture_start`, `coherentgt_heap_snapshot`, and `coherentgt_set_paint_rects_visible` when you only need one diagnostic surface.
 
-Agent note: this is a Coherent GT legacy WebKit Inspector target, not modern Chrome DevTools. Agents should use `coherentgt_profile_capabilities` and the profiling tools above instead of probing Chrome-only domains such as `Performance`, `Profiler`, `Tracing`, `HeapProfiler`, `DOMSnapshot`, or `Runtime.getHeapUsage`. If an agent only sees structural/runtime tools and no `coherentgt_capture_all_start`, restart that agent session so it reloads the MCP tool list.
+Agent note: this is a Coherent GT legacy WebKit Inspector target, not modern Chrome DevTools. Agents should use `coherentgt_profile_capabilities` and the profiling tools above instead of probing Chrome-only domains such as `Performance`, `Profiler`, `Tracing`, `HeapProfiler`, `DOMSnapshot`, or `Runtime.getHeapUsage`. Prefer one-shot DOM/runtime/resource/image tools before persistent `Debugger.enable` sessions; some Coherent instances reset the WebInspector socket during long-lived debugger attachment. If an agent only sees structural/runtime tools and no `coherentgt_capture_all_start`, restart that agent session so it reloads the MCP tool list.
 
 Generic triage flow:
 

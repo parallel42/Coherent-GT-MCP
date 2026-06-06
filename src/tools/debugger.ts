@@ -1,4 +1,5 @@
 import { buildWebsocketUrl } from "../coherent/debugger-client.js";
+import { isRetriableInspectorError } from "../coherent/inspector-client.js";
 import type { InspectorCommandResult } from "../coherent/protocol.js";
 import { PersistentInspectorSession, type BreakpointRecord } from "../coherent/persistent-inspector.js";
 
@@ -14,7 +15,12 @@ export class DebugSessionManager {
 
   async start(pageId: number, options: { pauseOnExceptions?: "none" | "all" | "uncaught" } = {}): Promise<unknown> {
     const session = this.getOrCreate(pageId);
-    return await session.start(options);
+    try {
+      return await session.start(options);
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw new Error(buildDebuggerUnavailableMessage(error));
+    }
   }
 
   stop(pageId: number): unknown {
@@ -48,7 +54,13 @@ export class DebugSessionManager {
   }
 
   async command(pageId: number, method: string, params?: object | undefined): Promise<unknown> {
-    return extractResult(method, await this.require(pageId).command(method, params));
+    const session = this.require(pageId);
+    try {
+      return extractResult(method, await session.command(method, params));
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   events(pageId: number, options: { sinceSequence?: number | undefined; maxEvents?: number | undefined; eventTypes?: string[] | undefined }): unknown {
@@ -83,29 +95,34 @@ export class DebugSessionManager {
     input: { query: string; urlContains?: string | undefined; caseSensitive: boolean; isRegex: boolean; maxScripts: number }
   ): Promise<unknown> {
     const session = this.require(pageId);
-    const matches = [];
-    const scripts = session.listScripts(input.urlContains).filter((script) => script.url).slice(0, input.maxScripts);
+    try {
+      const matches = [];
+      const scripts = session.listScripts(input.urlContains).filter((script) => script.url).slice(0, input.maxScripts);
 
-    for (const script of scripts) {
-      const result = extractResult(
-        "Debugger.searchInContent",
-        await session.command("Debugger.searchInContent", {
-          scriptId: script.scriptId,
-          query: input.query,
-          caseSensitive: input.caseSensitive,
-          isRegex: input.isRegex
-        })
-      ) as { result?: unknown[] };
+      for (const script of scripts) {
+        const result = extractResult(
+          "Debugger.searchInContent",
+          await session.command("Debugger.searchInContent", {
+            scriptId: script.scriptId,
+            query: input.query,
+            caseSensitive: input.caseSensitive,
+            isRegex: input.isRegex
+          })
+        ) as { result?: unknown[] };
 
-      if (Array.isArray(result.result) && result.result.length > 0) {
-        matches.push({
-          script,
-          matches: result.result
-        });
+        if (Array.isArray(result.result) && result.result.length > 0) {
+          matches.push({
+            script,
+            matches: result.result
+          });
+        }
       }
-    }
 
-    return { searchedScripts: scripts.length, matches };
+      return { searchedScripts: scripts.length, matches };
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   async setBreakpointByUrl(
@@ -205,17 +222,22 @@ export class DebugSessionManager {
 
   async setDomBreakpoint(pageId: number, input: { selector: string; type: string }): Promise<unknown> {
     const session = this.require(pageId);
-    const nodeId = await resolveNodeId(session, input.selector);
-    await this.command(pageId, "DOMDebugger.setDOMBreakpoint", {
-      nodeId,
-      type: input.type
-    });
-    return session.rememberBreakpoint({
-      id: `dom:${nodeId}:${input.type}`,
-      kind: "dom",
-      createdAt: new Date().toISOString(),
-      details: { ...input, nodeId }
-    });
+    try {
+      const nodeId = await resolveNodeId(session, input.selector);
+      await this.command(pageId, "DOMDebugger.setDOMBreakpoint", {
+        nodeId,
+        type: input.type
+      });
+      return session.rememberBreakpoint({
+        id: `dom:${nodeId}:${input.type}`,
+        kind: "dom",
+        createdAt: new Date().toISOString(),
+        details: { ...input, nodeId }
+      });
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   async evaluateOnCallFrame(
@@ -258,6 +280,31 @@ export class DebugSessionManager {
 
     return session;
   }
+
+  private releaseFailedSession(pageId: number, session: PersistentInspectorSession, error: unknown): void {
+    if (!isRetriableInspectorError(error)) {
+      return;
+    }
+
+    session.close();
+    if (this.sessions.get(pageId) === session) {
+      this.sessions.delete(pageId);
+    }
+  }
+}
+
+function buildDebuggerUnavailableMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!isRetriableInspectorError(error)) {
+    return message;
+  }
+
+  return [
+    "Persistent debugger attachment failed because the Coherent WebInspector socket closed or reset.",
+    "This Coherent target may not support long-lived Debugger.enable/breakpoint sessions reliably.",
+    "The failed session was released; use lightweight DOM/runtime/resource tools for inspection.",
+    `Original error: ${message}`
+  ].join(" ");
 }
 
 async function resolveNodeId(session: PersistentInspectorSession, selector: string): Promise<number> {

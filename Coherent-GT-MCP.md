@@ -181,7 +181,7 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 | CSS inspection and mutation | `coherentgt_get_stylesheets`, `coherentgt_get_stylesheet_text`, `coherentgt_get_matched_styles`, `coherentgt_set_style` | List stylesheets, read CSS text, inspect matched rules, and apply inline styles. |
 | Resource inspection | `coherentgt_get_resource_tree`, `coherentgt_get_resource_content`, `coherentgt_search_resource`, `coherentgt_probe_resource`, `coherentgt_probe_image` | Read the frame/resource tree, fetch/search resource content, correlate requested resources with network/local metadata, and verify image decode dimensions. |
 | UI interaction and navigation | `coherentgt_click`, `coherentgt_reload_view`, `coherentgt_navigate_view` | Dispatch click events, reload views, and navigate views. |
-| Persistent debugging | `coherentgt_debug_start`, `coherentgt_debug_stop`, `coherentgt_debug_status`, `coherentgt_debug_events`, `coherentgt_debug_command` | Open long-lived inspector sessions, buffer debugger events, and send session-scoped commands. |
+| Persistent debugging | `coherentgt_debug_start`, `coherentgt_debug_stop`, `coherentgt_debug_status`, `coherentgt_debug_events`, `coherentgt_debug_command` | Open long-lived inspector sessions, buffer debugger events, and send session-scoped commands. This is target-dependent; some Coherent instances reset the socket during debugger attachment. |
 | Script analysis | `coherentgt_debug_list_scripts`, `coherentgt_debug_get_script_source`, `coherentgt_debug_search_script`, `coherentgt_debug_search_all_scripts` | Track parsed scripts, retrieve script source, and search one or many scripts. |
 | Breakpoints | `coherentgt_debug_set_breakpoint_by_url`, `coherentgt_debug_set_breakpoint`, `coherentgt_debug_remove_breakpoint`, `coherentgt_debug_list_breakpoints`, `coherentgt_debug_set_event_listener_breakpoint`, `coherentgt_debug_set_xhr_breakpoint`, `coherentgt_debug_set_dom_breakpoint` | Manage URL, script-location, event-listener, XHR/fetch, and DOM breakpoints. |
 | Pause and stepping | `coherentgt_debug_pause`, `coherentgt_debug_resume`, `coherentgt_debug_step_over`, `coherentgt_debug_step_into`, `coherentgt_debug_step_out`, `coherentgt_debug_paused`, `coherentgt_debug_evaluate_on_call_frame` | Pause/resume JavaScript, step through paused code, inspect paused state, and evaluate in call frames. |
@@ -378,6 +378,8 @@ Start with `coherentgt_profile_capabilities` when an agent is unsure what the Co
 ### Persistent Debugging
 
 Persistent debugging keeps a WebInspector socket open per `pageId`. It enables `Runtime`, `Page`, and `Debugger`, tracks `Debugger.scriptParsed` events, buffers recent events, stores MCP-created breakpoints, and remembers the current paused state.
+
+Use this only when a real breakpoint or paused call-frame workflow is needed. Coherent can reset the WebInspector socket during `Debugger.enable`; when that happens the MCP releases the failed session and lightweight DOM/runtime/resource tools should be used instead.
 
 - `coherentgt_debug_start`
   - Input: `{ pageId: number, pauseOnExceptions?: "none" | "all" | "uncaught" }`

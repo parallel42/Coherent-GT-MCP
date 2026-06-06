@@ -4,6 +4,7 @@ export function coherentgtProfileCapabilities(): Record<string, unknown> {
     agentGuidance: [
       "Do not probe Chrome-only domains first. Coherent GT targets normally do not expose Performance, Profiler, Tracing, HeapProfiler, DOMSnapshot, or Runtime.getHeapUsage.",
       "Use the MCP profiling tools first. They wrap the legacy Timeline, ScriptProfiler, Network, Heap, LayerTree, and Page overlay commands and return compact summaries.",
+      "Prefer one-shot DOM, Runtime, resource, image, and diagnostic tools over persistent Debugger.enable/breakpoint sessions. Some Coherent instances reset the WebInspector socket when long-lived debugger attachment starts.",
       "If these profiling tools are missing from an agent session, the MCP client has stale tool metadata or is connected to an older server. Restart the MCP client/session and verify the configured MCP endpoint lists the profiling tools."
     ],
     recommendedFlow: [
@@ -42,6 +43,7 @@ export function coherentgtProfileCapabilities(): Record<string, unknown> {
     limitations: [
       "This is not a Chrome DevTools CPU flamegraph.",
       "Heap support depends on the Coherent target exposing legacy Heap commands.",
+      "Persistent debugger attachment is target-dependent. If coherentgt_debug_start reports a closed/reset inspector socket, the MCP releases that failed session and lightweight inspection tools should be used instead.",
       "Captures observe future activity. Use reload: true after setup when startup and network waterfalls matter.",
       "Default stop/snapshot responses are compact; raw payloads are intentionally retained behind rawId values."
     ]

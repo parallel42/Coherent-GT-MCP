@@ -82,7 +82,7 @@ export class PersistentInspectorSession {
         clearTimeout(timeout);
         reject(error);
       });
-      this.socket?.on("close", () => this.closePending("Inspector session closed"));
+      this.socket?.on("close", () => this.handleSocketClosed());
     });
 
     await this.tryCommand("Runtime.enable");
@@ -177,16 +177,22 @@ export class PersistentInspectorSession {
   }
 
   close(): void {
-    if (this.closed) {
-      return;
-    }
+    const wasClosed = this.closed;
     this.closed = true;
     this.opened = false;
-    this.closePending("Inspector session closed");
+    if (!wasClosed) {
+      this.closePending("Inspector session closed");
+    }
     this.socket?.removeAllListeners();
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
       this.socket.close();
     }
+  }
+
+  handleSocketClosed(): void {
+    this.opened = false;
+    this.closed = true;
+    this.closePending("Inspector session closed");
   }
 
   private async tryCommand(method: string, params?: object | undefined): Promise<{ ok: boolean; result?: unknown; error?: string }> {
