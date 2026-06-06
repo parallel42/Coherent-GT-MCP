@@ -1,5 +1,5 @@
 import { buildWebsocketUrl } from "../coherent/debugger-client.js";
-import { sendInspectorCommand, withInspectorSession } from "../coherent/inspector-client.js";
+import { isRetriableInspectorError, sendInspectorCommand, withInspectorSession } from "../coherent/inspector-client.js";
 import type { InspectorCommandResult } from "../coherent/protocol.js";
 import { assertPageId } from "../coherent/view-selector.js";
 
@@ -71,12 +71,25 @@ export async function coherentgtInspectorSession<T>(
 ): Promise<T> {
   const websocketUrl = buildWebsocketUrl(options.debuggerUrl, assertPageId(options.pageId));
   return await enqueueInspectorCommand(websocketUrl, () =>
-    withInspectorSession(
-      {
-        websocketUrl,
-        timeoutMs: options.timeoutMs
-      },
-      fn
+    retryRetriable(() =>
+      withInspectorSession(
+        {
+          websocketUrl,
+          timeoutMs: options.timeoutMs
+        },
+        fn
+      )
     )
   );
+}
+
+async function retryRetriable<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (!isRetriableInspectorError(error)) {
+      throw error;
+    }
+    return await fn();
+  }
 }

@@ -7,12 +7,36 @@ export async function sendInspectorCommand(options: {
   params?: object;
   timeoutMs: number;
 }): Promise<InspectorCommandResult> {
+  const maxAttempts = 2;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return await sendInspectorCommandOnce(options);
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < maxAttempts && isRetriableInspectorError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function sendInspectorCommandOnce(options: {
+  websocketUrl: string;
+  method: string;
+  params?: object;
+  timeoutMs: number;
+}): Promise<InspectorCommandResult> {
   const commandId = 1;
   const events: InspectorEvent[] = [];
 
   return await new Promise((resolve, reject) => {
     const socket = new WebSocket(options.websocketUrl);
     let settled = false;
+    let sent = false;
 
     const finish = (error?: Error, result?: InspectorCommandResult): void => {
       if (settled) {
@@ -35,17 +59,38 @@ export async function sendInspectorCommand(options: {
       }
     };
 
+    const reloadClosedResult = (): InspectorCommandResult => ({
+      response: {
+        id: commandId,
+        result: {
+          reloaded: true,
+          connectionClosed: true
+        }
+      },
+      events
+    });
+
     const timeout = setTimeout(() => {
+      if (options.method === "Page.reload" && sent) {
+        finish(undefined, reloadClosedResult());
+        return;
+      }
       finish(new Error(`Timed out after ${options.timeoutMs}ms waiting for ${options.method}`));
     }, options.timeoutMs);
 
     socket.on("open", () => {
+      sent = true;
       socket.send(
         JSON.stringify({
           id: commandId,
           method: options.method,
           params: options.params ?? {}
-        })
+        }),
+        (error) => {
+          if (error) {
+            finish(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       );
     });
 
@@ -72,7 +117,19 @@ export async function sendInspectorCommand(options: {
     });
 
     socket.on("error", (error) => {
+      if (options.method === "Page.reload" && sent && isRetriableInspectorError(error)) {
+        finish(undefined, reloadClosedResult());
+        return;
+      }
       finish(error);
+    });
+
+    socket.on("close", () => {
+      if (options.method === "Page.reload" && sent) {
+        finish(undefined, reloadClosedResult());
+        return;
+      }
+      finish(new Error(`Inspector socket closed while waiting for ${options.method}`));
     });
   });
 }
@@ -189,7 +246,27 @@ export async function withInspectorSession<T>(
       close();
       reject(error);
     });
+
+    socket.on("close", () => {
+      close();
+      reject(new Error("Inspector session closed"));
+    });
   });
+}
+
+export function isRetriableInspectorError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("econnreset") ||
+    lower.includes("socket hang up") ||
+    lower.includes("socket closed") ||
+    lower.includes("session closed") ||
+    lower.includes("session is not open") ||
+    lower.includes("inspector session is not open") ||
+    lower.includes("diagnostic session is not open") ||
+    lower.includes("profiling session is not open")
+  );
 }
 
 function isInspectorResponse(value: unknown): value is InspectorCommandResponse {

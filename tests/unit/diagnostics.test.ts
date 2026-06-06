@@ -71,6 +71,43 @@ describe("diagnostic helpers", () => {
     expect(manager.status(8)).toEqual({ pageId: 8, open: false });
   });
 
+  it("retries a diagnostic command once after a stale session reset", async () => {
+    const manager = new DiagnosticSessionManager({
+      debuggerUrl: "http://127.0.0.1:19999",
+      timeoutMs: 1000,
+      hostCorrelation: {
+        hostHelperUrl: null,
+        processNames: [],
+        logRoots: [],
+        resourceRoots: []
+      }
+    });
+    const closed: string[] = [];
+    const sessions = [
+      {
+        ensureOpen: async () => {},
+        listEvents: () => {
+          throw new Error("read ECONNRESET");
+        },
+        close: () => closed.push("stale")
+      },
+      {
+        ensureOpen: async () => {},
+        listEvents: () => [],
+        close: () => closed.push("fresh")
+      }
+    ];
+    (manager as unknown as { getOrCreate: () => unknown }).getOrCreate = () => sessions.shift();
+
+    await expect(manager.networkSnapshot(9, { maxEvents: 100, maxPayloadChars: 240 })).resolves.toEqual({
+      requestCount: 0,
+      webSocketCount: 0,
+      requests: [],
+      webSockets: []
+    });
+    expect(closed).toEqual(["stale"]);
+  });
+
   it("builds old-WebKit-compatible page health probes", () => {
     const expression = buildPageHealthExpression(250);
 

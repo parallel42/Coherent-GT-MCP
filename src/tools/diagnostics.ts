@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { buildWebsocketUrl } from "../coherent/debugger-client.js";
 import type { CoherentDebuggerClient } from "../coherent/debugger-client.js";
+import { isRetriableInspectorError } from "../coherent/inspector-client.js";
 import type { InspectorCommandResponse, InspectorCommandResult, InspectorEvent } from "../coherent/protocol.js";
 import { filterInspectableViews, toPageSummary, type PageSummary } from "./pages.js";
 import { normalizeEvaluateResult, normalizeInspectorError } from "./evaluate.js";
@@ -54,83 +55,85 @@ export class DiagnosticSessionManager {
   }
 
   async consoleSnapshot(pageId: number, options: { levels?: string[] | undefined; maxEvents: number; textContains?: string | undefined }): Promise<unknown> {
-    const session = await this.ready(pageId);
-    return summarizeConsoleEvents(session.listEvents({ maxEvents: 1000 }), options);
+    return await this.withSession(pageId, (session) => summarizeConsoleEvents(session.listEvents({ maxEvents: 1000 }), options));
   }
 
   async runtimeErrors(pageId: number, options: { maxEvents: number }): Promise<unknown> {
-    const session = await this.ready(pageId);
-    return summarizeRuntimeErrors(session.listEvents({ maxEvents: 1000 }), options);
+    return await this.withSession(pageId, (session) => summarizeRuntimeErrors(session.listEvents({ maxEvents: 1000 }), options));
   }
 
   async pageHealth(pageId: number, options: { sampleMs: number; globalProbes?: string[] | undefined }): Promise<unknown> {
-    const session = await this.ready(pageId);
-    const before = normalizeEvaluateResult(
-      await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
-    );
-    await delay(options.sampleMs);
-    const health = normalizeEvaluateResult(
-      await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
-    );
-    health.value = mergeHealthSamples(before.value, health.value, options.sampleMs);
-    const probes =
-      options.globalProbes && options.globalProbes.length > 0
-        ? normalizeEvaluateResult(
-            await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildRuntimeProbeExpression(options.globalProbes) }))
-          )
-        : undefined;
+    return await this.withSession(pageId, async (session) => {
+      const before = normalizeEvaluateResult(
+        await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
+      );
+      await delay(options.sampleMs);
+      const health = normalizeEvaluateResult(
+        await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
+      );
+      health.value = mergeHealthSamples(before.value, health.value, options.sampleMs);
+      const probes =
+        options.globalProbes && options.globalProbes.length > 0
+          ? normalizeEvaluateResult(
+              await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildRuntimeProbeExpression(options.globalProbes) }))
+            )
+          : undefined;
 
-    return {
-      pageId,
-      health,
-      probes
-    };
-  }
-
-  async networkSnapshot(pageId: number, options: { maxEvents: number; maxPayloadChars: number }): Promise<unknown> {
-    const session = await this.ready(pageId);
-    return summarizeNetworkEvents(session.listEvents({ maxEvents: options.maxEvents }), {
-      maxPayloadChars: options.maxPayloadChars
+      return {
+        pageId,
+        health,
+        probes
+      };
     });
   }
 
-  async eventListeners(pageId: number, options: { selector: string }): Promise<unknown> {
-    const session = await this.ready(pageId);
-    const expression = buildNodeReferenceExpression(options.selector);
-    const nodeObject = normalizeEvaluateResult(
-      await session.command("Runtime.evaluate", {
-        expression,
-        returnByValue: false,
-        objectGroup: "coherentgt-diagnostics"
+  async networkSnapshot(pageId: number, options: { maxEvents: number; maxPayloadChars: number }): Promise<unknown> {
+    return await this.withSession(pageId, (session) =>
+      summarizeNetworkEvents(session.listEvents({ maxEvents: options.maxEvents }), {
+        maxPayloadChars: options.maxPayloadChars
       })
     );
-    const objectId = readRecord(readRecord((await session.lastResponse())?.response?.result).result).objectId;
+  }
 
-    if (typeof objectId === "string") {
-      const nativeResult = await session.tryCommand("DOMDebugger.getEventListeners", { objectId });
-      if (nativeResult.ok) {
-        return {
-          selector: options.selector,
-          source: "DOMDebugger.getEventListeners",
-          result: nativeResult.result
-        };
+  async eventListeners(pageId: number, options: { selector: string }): Promise<unknown> {
+    return await this.withSession(pageId, async (session) => {
+      const expression = buildNodeReferenceExpression(options.selector);
+      const nodeObject = normalizeEvaluateResult(
+        await session.command("Runtime.evaluate", {
+          expression,
+          returnByValue: false,
+          objectGroup: "coherentgt-diagnostics"
+        })
+      );
+      const objectId = readRecord(readRecord((await session.lastResponse())?.response?.result).result).objectId;
+
+      if (typeof objectId === "string") {
+        const nativeResult = await session.tryCommand("DOMDebugger.getEventListeners", { objectId });
+        if (nativeResult.ok) {
+          return {
+            selector: options.selector,
+            source: "DOMDebugger.getEventListeners",
+            result: nativeResult.result
+          };
+        }
       }
-    }
 
-    return {
-      selector: options.selector,
-      source: "runtime-probe",
-      node: nodeObject,
-      result: normalizeEvaluateResult(
-        await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildEventListenerProbeExpression(options.selector) }))
-      )
-    };
+      return {
+        selector: options.selector,
+        source: "runtime-probe",
+        node: nodeObject,
+        result: normalizeEvaluateResult(
+          await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildEventListenerProbeExpression(options.selector) }))
+        )
+      };
+    });
   }
 
   async traceEvents(pageId: number, options: EventFilter & { timeoutMs: number }): Promise<unknown> {
-    const session = await this.ready(pageId);
-    await delay(options.timeoutMs);
-    return session.listEvents(options);
+    return await this.withSession(pageId, async (session) => {
+      await delay(options.timeoutMs);
+      return session.listEvents(options);
+    });
   }
 
   async diagnosePage(
@@ -151,46 +154,47 @@ export class DiagnosticSessionManager {
       const views = await client.listViews();
       const page = selectPage(this.options.debuggerUrl, views, input.pageId, input.pageFilter);
       selectedPageId = page.id;
-      const session = await this.ready(page.id);
-      const [health, resourceTree, hostCorrelation] = await Promise.all([
-        this.pageHealth(page.id, { sampleMs: input.sampleMs, globalProbes: input.globalProbes }).catch((error) => ({
-          pageId: page.id,
-          health: normalizeInspectorError(error, { method: "Runtime.evaluate", timeoutMs: this.options.timeoutMs })
-        })),
-        session.tryCommand("Page.getResourceTree"),
-        queryHostCorrelation(this.options.hostCorrelation)
-      ]);
-      const events = session.listEvents({ maxEvents: 1000 });
-      const consoleSummary = summarizeConsoleEvents(events, { levels: input.consoleLevels, maxEvents: 50 });
-      const runtimeErrors = summarizeRuntimeErrors(events, { maxEvents: 50 });
-      const network = summarizeNetworkEvents(events, { maxPayloadChars: 240 });
-      const resourceSummary = summarizeResourceTree(resourceTree.ok ? resourceTree.result : undefined);
-      const selectors = await Promise.all((input.selectors ?? []).map((selector) => this.inspectSelectorProbe(page.id, selector)));
-      const resourceProbes = await Promise.all((input.resources ?? []).map((url) => this.resourceProbe(page.id, url)));
-      const imageProbes = await Promise.all((input.images ?? []).map((url) => this.imageProbe(page.id, url)));
+      return await this.withSession(page.id, async (session) => {
+        const [health, resourceTree, hostCorrelation] = await Promise.all([
+          this.pageHealth(page.id, { sampleMs: input.sampleMs, globalProbes: input.globalProbes }).catch((error) => ({
+            pageId: page.id,
+            health: normalizeInspectorError(error, { method: "Runtime.evaluate", timeoutMs: this.options.timeoutMs })
+          })),
+          session.tryCommand("Page.getResourceTree"),
+          queryHostCorrelation(this.options.hostCorrelation)
+        ]);
+        const events = session.listEvents({ maxEvents: 1000 });
+        const consoleSummary = summarizeConsoleEvents(events, { levels: input.consoleLevels, maxEvents: 50 });
+        const runtimeErrors = summarizeRuntimeErrors(events, { maxEvents: 50 });
+        const network = summarizeNetworkEvents(events, { maxPayloadChars: 240 });
+        const resourceSummary = summarizeResourceTree(resourceTree.ok ? resourceTree.result : undefined);
+        const selectors = await Promise.all((input.selectors ?? []).map((selector) => this.inspectSelectorProbe(page.id, selector)));
+        const resourceProbes = await Promise.all((input.resources ?? []).map((url) => this.resourceProbe(page.id, url)));
+        const imageProbes = await Promise.all((input.images ?? []).map((url) => this.imageProbe(page.id, url)));
 
-      return {
-        page,
-        console: consoleSummary,
-        runtimeErrors,
-        health,
-        resources: resourceSummary,
-        network,
-        listeners: {
-          observedEventCount: events.length,
-          supported: session.supportedCommands()
-        },
-        hostCorrelation,
-        selectors,
-        resourceProbes,
-        imageProbes,
-        runtime: runtimeStatus(health),
-        likelyCauses: buildLikelyCauses(consoleSummary, runtimeErrors, health, network, {
+        return {
+          page,
+          console: consoleSummary,
+          runtimeErrors,
+          health,
+          resources: resourceSummary,
+          network,
+          listeners: {
+            observedEventCount: events.length,
+            supported: session.supportedCommands()
+          },
+          hostCorrelation,
           selectors,
           resourceProbes,
-          imageProbes
-        })
-      };
+          imageProbes,
+          runtime: runtimeStatus(health),
+          likelyCauses: buildLikelyCauses(consoleSummary, runtimeErrors, health, network, {
+            selectors,
+            resourceProbes,
+            imageProbes
+          })
+        };
+      });
     } finally {
       if (selectedPageId !== undefined) {
         this.release(selectedPageId);
@@ -204,9 +208,10 @@ export class DiagnosticSessionManager {
     options: { releaseAfter?: boolean | undefined } = {}
   ): Promise<Record<string, unknown> | undefined> {
     try {
-      const session = await this.ready(pageId);
-      const summary = summarizeNetworkEvents(session.listEvents({ maxEvents: 5000 }), { maxPayloadChars: 240 });
-      return summary.requests.find((entry) => readRecord(entry).url === url) as Record<string, unknown> | undefined;
+      return await this.withSession(pageId, (session) => {
+        const summary = summarizeNetworkEvents(session.listEvents({ maxEvents: 5000 }), { maxPayloadChars: 240 });
+        return summary.requests.find((entry) => readRecord(entry).url === url) as Record<string, unknown> | undefined;
+      });
     } finally {
       if (options.releaseAfter) {
         this.release(pageId);
@@ -258,6 +263,27 @@ export class DiagnosticSessionManager {
     const session = this.getOrCreate(pageId);
     await session.ensureOpen();
     return session;
+  }
+
+  private async withSession<T>(pageId: number, fn: (session: DiagnosticSession) => Promise<T> | T): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const session = this.getOrCreate(pageId);
+      try {
+        await session.ensureOpen();
+        return await fn(session);
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0 && isRetriableInspectorError(error)) {
+          session.close();
+          this.sessions.delete(pageId);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
   private async inspectSelectorProbe(pageId: number, selector: string): Promise<unknown> {
