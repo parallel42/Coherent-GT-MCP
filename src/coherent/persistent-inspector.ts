@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import type { InspectorCommandResponse, InspectorCommandResult, InspectorEvent } from "./protocol.js";
+import { closeWebSocketSafely } from "./websocket-lifecycle.js";
 
 export type DebugEvent = InspectorEvent & {
   sequence: number;
@@ -183,10 +184,7 @@ export class PersistentInspectorSession {
     if (!wasClosed) {
       this.closePending("Inspector session closed");
     }
-    this.socket?.removeAllListeners();
-    if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
-      this.socket.close();
-    }
+    closeWebSocketSafely(this.socket);
   }
 
   handleSocketClosed(): void {

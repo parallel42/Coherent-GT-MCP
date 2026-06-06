@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import type { InspectorCommandResult, InspectorCommandResponse, InspectorEvent } from "./protocol.js";
+import { closeWebSocketSafely } from "./websocket-lifecycle.js";
 
 export async function sendInspectorCommand(options: {
   websocketUrl: string;
@@ -45,10 +46,7 @@ async function sendInspectorCommandOnce(options: {
 
       settled = true;
       clearTimeout(timeout);
-      socket.removeAllListeners();
-      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-        socket.close();
-      }
+      closeWebSocketSafely(socket);
 
       if (error) {
         reject(error);
@@ -164,10 +162,7 @@ export async function withInspectorSession<T>(
         entry.reject(new Error("Inspector session closed before command completed"));
       }
       pending.clear();
-      socket.removeAllListeners();
-      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-        socket.close();
-      }
+      closeWebSocketSafely(socket);
     };
 
     const send = async (method: string, params?: object): Promise<InspectorCommandResult> => {

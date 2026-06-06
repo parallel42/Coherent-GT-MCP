@@ -1,6 +1,8 @@
 import WebSocket from "ws";
 import { buildWebsocketUrl } from "../coherent/debugger-client.js";
+import { isRetriableInspectorError } from "../coherent/inspector-client.js";
 import type { InspectorCommandResponse, InspectorEvent } from "../coherent/protocol.js";
+import { closeWebSocketSafely } from "../coherent/websocket-lifecycle.js";
 
 export type CaptureInstrument = "timeline" | "script" | "network" | "heap" | "layerTree";
 export type TimelineInstrument = "Timeline" | "ScriptProfiler" | "Memory" | "Heap";
@@ -56,7 +58,13 @@ export class ProfilingSessionManager {
   constructor(private readonly options: ManagerOptions) {}
 
   async start(pageId: number, options: StartOptions): Promise<unknown> {
-    return await this.getOrCreate(pageId).start(options);
+    const session = this.getOrCreate(pageId);
+    try {
+      return await session.start(options);
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   async startAll(pageId: number, options: Omit<StartOptions, "instruments">): Promise<unknown> {
@@ -64,7 +72,13 @@ export class ProfilingSessionManager {
   }
 
   async stop(pageId: number, instruments?: CaptureInstrument[] | undefined): Promise<unknown> {
-    return await this.require(pageId).stop(instruments);
+    const session = this.require(pageId);
+    try {
+      return await session.stop(instruments);
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   status(pageId?: number | undefined): unknown {
@@ -95,43 +109,77 @@ export class ProfilingSessionManager {
   }
 
   async heapSnapshot(pageId: number): Promise<unknown> {
-    return await this.getOrCreate(pageId).heapSnapshot();
+    const session = this.getOrCreate(pageId);
+    try {
+      return await session.heapSnapshot();
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   async heapGc(pageId: number): Promise<unknown> {
-    return await this.getOrCreate(pageId).sendCommand("Heap.gc");
+    const session = this.getOrCreate(pageId);
+    try {
+      return await session.sendCommand("Heap.gc");
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   async layerTree(pageId: number, input: { nodeId?: number | undefined; selector?: string | undefined }): Promise<unknown> {
     const session = this.getOrCreate(pageId);
-    await session.ensureOpen();
-    await session.tryCommand("LayerTree.enable");
+    try {
+      await session.ensureOpen();
+      await session.tryCommand("LayerTree.enable");
 
-    const nodeId = input.nodeId ?? (input.selector ? await session.resolveNodeId(input.selector) : undefined);
-    if (nodeId === undefined) {
-      return {
-        pageId,
-        enabled: true,
-        message: "LayerTree enabled. Supply nodeId or selector to call LayerTree.layersForNode."
-      };
+      const nodeId = input.nodeId ?? (input.selector ? await session.resolveNodeId(input.selector) : undefined);
+      if (nodeId === undefined) {
+        return {
+          pageId,
+          enabled: true,
+          message: "LayerTree enabled. Supply nodeId or selector to call LayerTree.layersForNode."
+        };
+      }
+
+      return await session.sendCommand("LayerTree.layersForNode", { nodeId });
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
     }
-
-    return await session.sendCommand("LayerTree.layersForNode", { nodeId });
   }
 
   async compositingReasons(pageId: number, layerId: string): Promise<unknown> {
     const session = this.getOrCreate(pageId);
-    await session.ensureOpen();
-    await session.tryCommand("LayerTree.enable");
-    return await session.sendCommand("LayerTree.reasonsForCompositingLayer", { layerId });
+    try {
+      await session.ensureOpen();
+      await session.tryCommand("LayerTree.enable");
+      return await session.sendCommand("LayerTree.reasonsForCompositingLayer", { layerId });
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   async setPaintRectsVisible(pageId: number, visible: boolean): Promise<unknown> {
-    return await this.getOrCreate(pageId).sendCommand("Page.setShowPaintRects", { result: visible });
+    const session = this.getOrCreate(pageId);
+    try {
+      return await session.sendCommand("Page.setShowPaintRects", { result: visible });
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   async setCompositingBordersVisible(pageId: number, visible: boolean): Promise<unknown> {
-    return await this.getOrCreate(pageId).sendCommand("Page.setCompositingBordersVisible", { visible });
+    const session = this.getOrCreate(pageId);
+    try {
+      return await session.sendCommand("Page.setCompositingBordersVisible", { visible });
+    } catch (error) {
+      this.releaseFailedSession(pageId, session, error);
+      throw error;
+    }
   }
 
   stopAll(): unknown {
@@ -162,6 +210,17 @@ export class ProfilingSessionManager {
     }
 
     return session;
+  }
+
+  private releaseFailedSession(pageId: number, session: ProfilingSession, error: unknown): void {
+    if (!isRetriableInspectorError(error)) {
+      return;
+    }
+
+    session.close();
+    if (this.sessions.get(pageId) === session) {
+      this.sessions.delete(pageId);
+    }
   }
 }
 
@@ -215,7 +274,7 @@ export class ProfilingSession {
         clearTimeout(timeout);
         reject(error);
       });
-      this.socket?.on("close", () => this.closePending("Profiling session closed"));
+      this.socket?.on("close", () => this.handleSocketClosed());
     });
 
     await this.tryCommand("Page.enable");
@@ -413,17 +472,21 @@ export class ProfilingSession {
   }
 
   close(): void {
-    if (this.closed) {
-      return;
-    }
+    const wasClosed = this.closed;
     this.closed = true;
     this.opened = false;
     this.activeInstruments.clear();
-    this.closePending("Profiling session closed");
-    this.socket?.removeAllListeners();
-    if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
-      this.socket.close();
+    if (!wasClosed) {
+      this.closePending("Profiling session closed");
     }
+    closeWebSocketSafely(this.socket);
+  }
+
+  handleSocketClosed(): void {
+    this.opened = false;
+    this.closed = true;
+    this.activeInstruments.clear();
+    this.closePending("Profiling session closed");
   }
 
   private async command(method: string, params?: object | undefined, timeoutMs = this.timeoutMs): Promise<InspectorCommandResponse> {

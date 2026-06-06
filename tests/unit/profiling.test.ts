@@ -26,6 +26,26 @@ describe("profiling summaries", () => {
     expect(manager.status(9)).toEqual({ pageId: 9, open: false });
   });
 
+  it("releases a profiling session after a socket reset", async () => {
+    const manager = new ProfilingSessionManager({
+      debuggerUrl: "http://127.0.0.1:19999",
+      timeoutMs: 1000
+    });
+    const closed: number[] = [];
+    (manager as unknown as { sessions: Map<number, unknown> }).sessions.set(9, {
+      isOpen: true,
+      stop: async () => {
+        throw new Error("read ECONNRESET");
+      },
+      close: () => closed.push(9),
+      status: () => ({ pageId: 9, open: true })
+    });
+
+    await expect(manager.stop(9)).rejects.toThrow("read ECONNRESET");
+    expect(closed).toEqual([9]);
+    expect(manager.status(9)).toEqual({ pageId: 9, open: false });
+  });
+
   it("aggregates network events into waterfall rows", () => {
     const events: InspectorEvent[] = [
       {

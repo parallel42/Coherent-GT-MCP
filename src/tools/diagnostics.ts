@@ -3,6 +3,7 @@ import { buildWebsocketUrl } from "../coherent/debugger-client.js";
 import type { CoherentDebuggerClient } from "../coherent/debugger-client.js";
 import { isRetriableInspectorError } from "../coherent/inspector-client.js";
 import type { InspectorCommandResponse, InspectorCommandResult, InspectorEvent } from "../coherent/protocol.js";
+import { closeWebSocketSafely } from "../coherent/websocket-lifecycle.js";
 import { filterInspectableViews, toPageSummary, type PageSummary } from "./pages.js";
 import { normalizeEvaluateResult, normalizeInspectorError } from "./evaluate.js";
 import { probeImage, probeResource } from "./resource-probe.js";
@@ -483,10 +484,7 @@ export class DiagnosticSession {
     this.closed = true;
     this.opened = false;
     this.closePending("Diagnostic session closed");
-    this.socket?.removeAllListeners();
-    if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
-      this.socket.close();
-    }
+    closeWebSocketSafely(this.socket);
   }
 
   private handleMessage(data: WebSocket.RawData): void {
