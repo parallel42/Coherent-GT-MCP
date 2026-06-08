@@ -10,7 +10,6 @@ Canonical names:
 
 - Repository: `Coherent-GT-MCP`
 - Package/server: `coherent-gt-mcp`
-- Optional Docker image: `ghcr.io/parallel42/coherent-gt-mcp:latest`
 
 References:
 
@@ -46,7 +45,7 @@ MCP client/agent B -> http://127.0.0.1:3333/mcp
       -> live Coherent GT view
 ```
 
-The host debugger endpoint is normally reachable at `http://127.0.0.1:19999` from Windows. Inside Docker only, the same host service must be reached as `http://host.docker.internal:19999`.
+The host debugger endpoint is normally reachable at `http://127.0.0.1:19999` from Windows. If the debugger service is exposed somewhere else, set `COHERENT_GT_DEBUGGER_URL` to that base URL.
 
 ## User Requirements
 
@@ -84,9 +83,11 @@ Codex should run the local Node server directly:
 ```toml
 [mcp_servers.p42-coherentgt-mcp]
 command = "node"
-args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\dist\index.js']
+args = ['C:\path\to\coherent-gt-mcp\dist\index.js']
 
 [mcp_servers.p42-coherentgt-mcp.env]
+COHERENT_GT_TRANSPORT = "stdio"
+COHERENT_GT_IDLE_TIMEOUT_MS = "0"
 COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
 ```
 
@@ -127,9 +128,11 @@ JSON clients:
     "coherent-gt-mcp": {
       "command": "node",
       "args": [
-        "F:\\Documents\\Clients\\Parallel 42\\Git\\p42-coherentgt-mcp\\dist\\index.js"
+        "C:\\path\\to\\coherent-gt-mcp\\dist\\index.js"
       ],
       "env": {
+        "COHERENT_GT_TRANSPORT": "stdio",
+        "COHERENT_GT_IDLE_TIMEOUT_MS": "0",
         "COHERENT_GT_DEBUGGER_URL": "http://127.0.0.1:19999"
       }
     }
@@ -142,7 +145,7 @@ JSON clients:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `COHERENT_GT_TRANSPORT` | `stdio` | MCP transport mode: `stdio` or `http`. |
-| `COHERENT_GT_DEBUGGER_URL` | `http://127.0.0.1:19999` | Base URL for the Coherent debugger service. Use `http://host.docker.internal:19999` only inside Docker. |
+| `COHERENT_GT_DEBUGGER_URL` | `http://127.0.0.1:19999` | Base URL for the Coherent debugger service. |
 | `COHERENT_GT_REQUEST_TIMEOUT_MS` | `5000` | Timeout for debugger HTTP requests such as `/pagelist.json`. |
 | `COHERENT_GT_WS_TIMEOUT_MS` | `30000` | Timeout for WebKit Inspector WebSocket commands. |
 | `COHERENT_GT_MAX_TEXT_BYTES` | `262144` | Hard maximum JSON text payload size returned through MCP. |
@@ -153,7 +156,7 @@ JSON clients:
 | `COHERENT_GT_HOST_HELPER_PROCESS_NAMES` | unset | Comma- or pipe-separated process allowlist queried by the host helper. |
 | `COHERENT_GT_HOST_HELPER_LOG_ROOTS` | unset | Pipe-separated log roots queried by the host helper. |
 | `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS` | unset | Pipe-separated local resource roots queried by the host helper for `coui://` URL correlation. |
-| `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` | Idle shutdown timer for stdio and shared HTTP modes. Set to `0` to disable automatic shutdown. |
+| `COHERENT_GT_IDLE_TIMEOUT_MS` | `3000000` | Idle shutdown timer for stdio and shared HTTP modes. Set to `0` to disable automatic shutdown. Codex stdio configs should pin this to `0` so cached tools do not point at an exited subprocess. |
 | `COHERENT_GT_HTTP_HOST` | `0.0.0.0` | HTTP bind host when `COHERENT_GT_TRANSPORT=http`. |
 | `COHERENT_GT_HTTP_PORT` | `3333` | HTTP bind port when `COHERENT_GT_TRANSPORT=http`. |
 | `COHERENT_GT_HTTP_PATH` | `/mcp` | Streamable HTTP MCP endpoint path. |
@@ -162,7 +165,7 @@ Configuration is normalized at startup. Paths, query strings, fragments, and tra
 
 Oversized tool replies are cached in memory and returned as a small preview with a `resultId`. Use `coherentgt_result_read` to read bounded byte ranges from the cached reply, or `coherentgt_result_search` to find compact match snippets without loading the full payload into the agent context.
 
-Optional host process/log/resource correlation is exposed by `scripts/coherentgt-host-helper.mjs`. Run it on Windows with `npm run host-helper`, configure allowlists with `COHERENT_GT_HOST_HELPER_PROCESS_NAMES`, `COHERENT_GT_HOST_HELPER_LOG_ROOTS`, and `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS`, and point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:3344`. Use `http://host.docker.internal:3344` only when the MCP server runs inside Docker.
+Optional host process/log/resource correlation is exposed by `scripts/coherentgt-host-helper.mjs`. Run it on Windows with `npm run host-helper`, configure allowlists with `COHERENT_GT_HOST_HELPER_PROCESS_NAMES`, `COHERENT_GT_HOST_HELPER_LOG_ROOTS`, and `COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS`, and point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:3344`.
 
 ## Capability Matrix
 
@@ -502,7 +505,7 @@ Important implementation behavior:
 
 - `src/index.ts` starts the MCP server over `StdioServerTransport` and writes diagnostics to stderr.
 - `src/config.ts` loads and validates environment configuration.
-- `src/coherent/debugger-client.ts` reads `/pagelist.json`, normalizes entries, and builds Docker-safe WebSocket URLs from the configured debugger host.
+- `src/coherent/debugger-client.ts` reads `/pagelist.json`, normalizes entries, and builds WebSocket URLs from the configured debugger host.
 - `src/coherent/inspector-client.ts` supports one-command inspector calls and short multi-command sessions.
 - `src/coherent/persistent-inspector.ts` maintains long-lived debugger sessions, tracks scripts, buffers events, stores breakpoints, and records paused state.
 - `src/tools/result.ts` caps oversized JSON responses while keeping the MCP payload parseable.
@@ -513,12 +516,7 @@ Important implementation behavior:
 
 ```text
 Coherent-GT-MCP/
-  .dockerignore
-  .github/
-    workflows/
-      docker-image.yml
   .gitignore
-  Dockerfile
   README.md
   Coherent-GT-MCP.md
   package.json
@@ -555,38 +553,6 @@ Coherent-GT-MCP/
       runtime.test.ts
       tool-schemas.test.ts
       view-selector.test.ts
-```
-
-## Optional Docker Image
-
-Docker is optional packaging for clients that need a container. Codex should use local Node stdio by default. The Dockerfile is multi-stage:
-
-- `deps`: installs dependencies with `npm ci`.
-- `build`: compiles TypeScript into `dist`.
-- `runtime`: installs production dependencies only and runs `node dist/index.js`.
-
-Default runtime image environment:
-
-```text
-NODE_ENV=production
-COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999
-```
-
-No Docker port publication is required.
-
-## Publishing
-
-`.github/workflows/docker-image.yml` publishes to GitHub Container Registry:
-
-- `latest` on the default branch.
-- Git tag images for `v*` tags.
-- SHA tags for traceability.
-- Manual `workflow_dispatch` support.
-
-Published image target:
-
-```text
-ghcr.io/parallel42/coherent-gt-mcp
 ```
 
 ## Testing
@@ -646,7 +612,6 @@ Use the server only with local development targets you control. Treat MCP client
   ```
 
 - If the endpoint works on the host but fails from local Node, verify the MCP config uses `http://127.0.0.1:19999`.
-- If the endpoint works on the host but fails inside Docker, verify the container config uses `http://host.docker.internal:19999`.
 - If views are missing, open or reload the relevant Coherent GT view in the host application and call `coherentgt_list_views` again.
 - If native CSS/DOM/resource tools fail, retry with `coherentgt_inspector_command` to check whether that WebInspector domain is supported by the target Coherent build.
 - If `Runtime.evaluate` times out, use native tools such as `coherentgt_inspect_selector`, `coherentgt_get_resource_tree`, and `coherentgt_probe_resource` before retrying runtime evaluation. Normalized evaluation tools return `likelyCause: "main-thread-busy"` when the timeout fits that pattern.
@@ -657,7 +622,6 @@ Use the server only with local development targets you control. Treat MCP client
 ## Current Boundaries
 
 - The server supports local Node stdio MCP and local Node Streamable HTTP MCP.
-- Docker packaging is optional.
 - It does not ship a native C++ bridge.
 - The HTTP transport exposes local MCP and health endpoints only.
 - It is intended for local development/debugging, not embedded use in shipped products.

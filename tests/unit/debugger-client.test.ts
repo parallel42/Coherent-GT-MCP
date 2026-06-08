@@ -34,7 +34,7 @@ describe("config URL normalization", () => {
     });
   });
 
-  it("loads host helper settings for Docker host correlation", () => {
+  it("loads host helper settings for host correlation", () => {
     expect(
       loadConfig({
         COHERENT_GT_HOST_HELPER_URL: "http://127.0.0.1:3344/",

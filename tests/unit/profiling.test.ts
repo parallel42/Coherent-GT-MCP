@@ -13,7 +13,7 @@ import {
 describe("profiling summaries", () => {
   it("releases a profiling session for a page", () => {
     const manager = new ProfilingSessionManager({
-      debuggerUrl: "http://host.docker.internal:19999",
+      debuggerUrl: "http://debugger.example.local:19999",
       timeoutMs: 1000
     });
     const closed: number[] = [];

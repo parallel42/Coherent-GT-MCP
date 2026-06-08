@@ -28,9 +28,11 @@ npm run build
 ```toml
 [mcp_servers.p42-coherentgt-mcp]
 command = "node"
-args = ['F:\Documents\Clients\Parallel 42\Git\p42-coherentgt-mcp\dist\index.js']
+args = ['C:\path\to\coherent-gt-mcp\dist\index.js']
 
 [mcp_servers.p42-coherentgt-mcp.env]
+COHERENT_GT_TRANSPORT = "stdio"
+COHERENT_GT_IDLE_TIMEOUT_MS = "0"
 COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
 ```
 
@@ -67,9 +69,11 @@ Invoke-RestMethod http://127.0.0.1:3333/health
     "coherent-gt-mcp": {
       "command": "node",
       "args": [
-        "F:\\Documents\\Clients\\Parallel 42\\Git\\p42-coherentgt-mcp\\dist\\index.js"
+        "C:\\path\\to\\coherent-gt-mcp\\dist\\index.js"
       ],
       "env": {
+        "COHERENT_GT_TRANSPORT": "stdio",
+        "COHERENT_GT_IDLE_TIMEOUT_MS": "0",
         "COHERENT_GT_DEBUGGER_URL": "http://127.0.0.1:19999"
       }
     }
@@ -86,10 +90,6 @@ npm run build
 ```
 
 Restart the agent after rebuilding. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before a rebuild can still report the older tool set.
-
-## Optional Docker Packaging
-
-Docker is not needed for Codex. If you still want a container for another client, the Docker image must use `COHERENT_GT_DEBUGGER_URL=http://host.docker.internal:19999` because the server runs inside Docker.
 
 ## Configuration
 
@@ -112,7 +112,7 @@ Docker is not needed for Codex. If you still want a container for another client
 | `COHERENT_GT_HTTP_PORT` | `3333` |
 | `COHERENT_GT_HTTP_PATH` | `/mcp` |
 
-`COHERENT_GT_DEBUGGER_URL` defaults to the Windows host debugger endpoint for local Node runs. Use `http://host.docker.internal:19999` only when running the server inside Docker. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio and shared HTTP modes and defaults to 50 minutes; set it to `0` to disable automatic shutdown.
+`COHERENT_GT_DEBUGGER_URL` defaults to the local Coherent debugger endpoint. Set it to another host URL only when the debugger service is exposed somewhere other than `127.0.0.1`. `COHERENT_GT_IDLE_TIMEOUT_MS` applies to stdio and shared HTTP modes and defaults to 50 minutes; set it to `0` to disable automatic shutdown. Codex stdio configs should pin it to `0`, because Codex can keep cached tool metadata after an MCP subprocess exits.
 
 Oversized tool replies are cached in memory and returned as a small preview with a `resultId`. Use `coherentgt_result_read` to read bounded byte ranges from the cached reply, or `coherentgt_result_search` to find compact match snippets without loading the full payload into the agent context. `COHERENT_GT_INLINE_RESULT_BYTES` controls when this kicks in, `COHERENT_GT_RESULT_PREVIEW_BYTES` controls the initial preview size, and `COHERENT_GT_RESULT_CHUNK_BYTES` controls the default follow-up read size.
 
@@ -124,7 +124,7 @@ $env:COHERENT_GT_HOST_HELPER_RESOURCE_ROOTS = "C:\Path\To\Resources|D:\OtherReso
 npm run host-helper
 ```
 
-Point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:3344` for local Node runs, or `http://host.docker.internal:3344` when running inside Docker. Process names, log roots, and local resource roots are allowlists; when the helper is not configured, diagnostic tools return an explicit unavailable reason.
+Point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:3344`. Process names, log roots, and local resource roots are allowlists; when the helper is not configured, diagnostic tools return an explicit unavailable reason.
 
 ## Tools
 

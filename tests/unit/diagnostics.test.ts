@@ -14,7 +14,7 @@ import {
 describe("diagnostic helpers", () => {
   it("releases a diagnostic session for a page", () => {
     const manager = new DiagnosticSessionManager({
-      debuggerUrl: "http://host.docker.internal:19999",
+      debuggerUrl: "http://debugger.example.local:19999",
       timeoutMs: 1000,
       hostCorrelation: {
         hostHelperUrl: null,
@@ -35,7 +35,7 @@ describe("diagnostic helpers", () => {
 
   it("can release the diagnostic session after a transient network lookup", async () => {
     const manager = new DiagnosticSessionManager({
-      debuggerUrl: "http://host.docker.internal:19999",
+      debuggerUrl: "http://debugger.example.local:19999",
       timeoutMs: 1000,
       hostCorrelation: {
         hostHelperUrl: null,

@@ -8,25 +8,25 @@ const views: InspectableView[] = [
     title: "Main View",
     url: "coui://example/views/main.html",
     inspectorUrl: "/inspector/Main.html?page=2",
-    websocketUrl: "ws://host.docker.internal:19999/devtools/page/2"
+    websocketUrl: "ws://debugger.example.local:19999/devtools/page/2"
   },
   {
     id: 9,
     title: "Secondary View",
     url: "coui://example/views/secondary.html",
     inspectorUrl: "http://127.0.0.1:19999/inspector/Main.html?page=9",
-    websocketUrl: "ws://host.docker.internal:19999/devtools/page/9"
+    websocketUrl: "ws://debugger.example.local:19999/devtools/page/9"
   }
 ];
 
 describe("page summaries", () => {
   it("normalizes relative inspector URLs against the debugger URL", () => {
-    expect(toPageSummary("http://host.docker.internal:19999", views[0]!)).toEqual({
+    expect(toPageSummary("http://debugger.example.local:19999", views[0]!)).toEqual({
       id: 2,
       title: "Main View",
       url: "coui://example/views/main.html",
-      inspectorUrl: "http://host.docker.internal:19999/inspector/Main.html?page=2",
-      websocketUrl: "ws://host.docker.internal:19999/devtools/page/2"
+      inspectorUrl: "http://debugger.example.local:19999/inspector/Main.html?page=2",
+      websocketUrl: "ws://debugger.example.local:19999/devtools/page/2"
     });
   });
 
