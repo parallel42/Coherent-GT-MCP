@@ -85,7 +85,7 @@ async function sendInspectorCommandOnce(options: {
 
     const timeout = setTimeout(() => {
       if (options.method === "Page.reload" && sent) {
-        finish(undefined, reloadClosedResult());
+        finishReloadAfterReconnect();
         return;
       }
       finish(new Error(`Timed out after ${options.timeoutMs}ms waiting for ${options.method}`));
@@ -153,7 +153,7 @@ async function waitForInspectorReconnect(websocketUrl: string, timeoutMs: number
 
   while (Date.now() < deadline) {
     try {
-      await probeInspectorConnection(websocketUrl, Math.max(1, deadline - Date.now()));
+      await probeInspectorConnection(websocketUrl, Math.min(1000, Math.max(1, deadline - Date.now())));
       return;
     } catch (error) {
       lastError = error;
@@ -350,6 +350,8 @@ export function isRetriableInspectorError(error: unknown): boolean {
     lower.includes("econnreset") ||
     lower.includes("socket hang up") ||
     lower.includes("socket closed") ||
+    lower.includes("timed out") ||
+    lower.includes("timeout") ||
     lower.includes("session closed") ||
     lower.includes("session is not open") ||
     lower.includes("inspector session is not open") ||
