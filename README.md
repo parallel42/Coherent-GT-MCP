@@ -28,7 +28,7 @@ npm run build
 ```toml
 [mcp_servers.p42-coherentgt-mcp]
 command = "node"
-args = ['C:\path\to\coherent-gt-mcp\dist\index.js']
+args = ['C:\path\to\coherent-gt-mcp\scripts\codex-shared-mcp-proxy.mjs']
 
 [mcp_servers.p42-coherentgt-mcp.env]
 COHERENT_GT_TRANSPORT = "stdio"
@@ -37,6 +37,9 @@ COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
 ```
 
 Restart Codex after changing the MCP configuration, then call `coherentgt_health` and `coherentgt_list_views`.
+
+The Codex launcher keeps the stdio transport open and supervises the built MCP child process. If the child exits,
+the current request returns an MCP error and the next request starts a fresh child after replaying initialization.
 
 ### Optional Shared HTTP Mode
 

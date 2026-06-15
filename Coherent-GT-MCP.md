@@ -83,7 +83,7 @@ Codex should run the local Node server directly:
 ```toml
 [mcp_servers.p42-coherentgt-mcp]
 command = "node"
-args = ['C:\path\to\coherent-gt-mcp\dist\index.js']
+args = ['C:\path\to\coherent-gt-mcp\scripts\codex-shared-mcp-proxy.mjs']
 
 [mcp_servers.p42-coherentgt-mcp.env]
 COHERENT_GT_TRANSPORT = "stdio"
@@ -92,6 +92,10 @@ COHERENT_GT_DEBUGGER_URL = "http://127.0.0.1:19999"
 ```
 
 Restart Codex after changing the MCP configuration or rebuilding the server. MCP clients usually cache tool metadata for the lifetime of a session, so a session that started before a rebuild can still report an older tool set.
+
+The Codex stdio launcher supervises `dist/index.js`. If that child exits, the launcher keeps Codex's stdio transport
+open, returns an MCP error for any request that was in flight, starts a fresh child on the next request, and replays MCP
+initialization internally.
 
 ### Shared HTTP Server
 
