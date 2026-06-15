@@ -47,15 +47,28 @@ describe("inspector client resilience", () => {
     expect(connections).toBe(2);
   });
 
-  it("treats a Page.reload socket reset after send as a successful reload", async () => {
+  it("reconnects after a Page.reload socket reset without resending the reload", async () => {
     const { server, websocketUrl } = await createServer();
     let connections = 0;
+    let reloads = 0;
+    let reconnectProbes = 0;
 
     server.on("connection", (socket) => {
       connections += 1;
-      socket.once("message", () => {
-        destroySocket(socket);
-      });
+      if (connections === 1) {
+        socket.once("message", () => {
+          destroySocket(socket);
+          reloads += 1;
+        });
+      } else if (connections === 2) {
+        socket.once("message", (data) => {
+          const message = JSON.parse(data.toString()) as { id: number; method: string };
+          if (message.method === "Runtime.evaluate") {
+            reconnectProbes += 1;
+          }
+          socket.send(JSON.stringify({ id: message.id, result: { result: { type: "string", value: "complete" } } }));
+        });
+      }
     });
 
     await expect(
@@ -69,11 +82,14 @@ describe("inspector client resilience", () => {
         id: 1,
         result: {
           reloaded: true,
-          connectionClosed: true
+          connectionClosed: true,
+          reconnected: true
         }
       }
     });
-    expect(connections).toBe(1);
+    expect(connections).toBe(2);
+    expect(reloads).toBe(1);
+    expect(reconnectProbes).toBe(1);
   });
 
   it("treats a Page.reload timeout after send as a successful reload", async () => {

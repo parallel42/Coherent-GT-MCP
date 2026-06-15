@@ -57,16 +57,31 @@ async function sendInspectorCommandOnce(options: {
       }
     };
 
-    const reloadClosedResult = (): InspectorCommandResult => ({
+    const reloadClosedResult = (reconnected = false): InspectorCommandResult => ({
       response: {
         id: commandId,
         result: {
           reloaded: true,
-          connectionClosed: true
+          connectionClosed: true,
+          reconnected
         }
       },
       events
     });
+
+    const finishReloadAfterReconnect = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      closeWebSocketSafely(socket);
+      waitForInspectorReconnect(options.websocketUrl, options.timeoutMs).then(
+        () => resolve(reloadClosedResult(true)),
+        (error) => reject(error instanceof Error ? error : new Error(String(error)))
+      );
+    };
 
     const timeout = setTimeout(() => {
       if (options.method === "Page.reload" && sent) {
@@ -116,7 +131,7 @@ async function sendInspectorCommandOnce(options: {
 
     socket.on("error", (error) => {
       if (options.method === "Page.reload" && sent && isRetriableInspectorError(error)) {
-        finish(undefined, reloadClosedResult());
+        finishReloadAfterReconnect();
         return;
       }
       finish(error);
@@ -124,11 +139,90 @@ async function sendInspectorCommandOnce(options: {
 
     socket.on("close", () => {
       if (options.method === "Page.reload" && sent) {
-        finish(undefined, reloadClosedResult());
+        finishReloadAfterReconnect();
         return;
       }
       finish(new Error(`Inspector socket closed while waiting for ${options.method}`));
     });
+  });
+}
+
+async function waitForInspectorReconnect(websocketUrl: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      await probeInspectorConnection(websocketUrl, Math.max(1, deadline - Date.now()));
+      return;
+    } catch (error) {
+      lastError = error;
+      await delay(Math.min(100, Math.max(0, deadline - Date.now())));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Timed out waiting for inspector reconnect after Page.reload");
+}
+
+async function probeInspectorConnection(websocketUrl: string, timeoutMs: number): Promise<void> {
+  const probeCommandId = 1;
+  await new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(websocketUrl);
+    let settled = false;
+
+    const finish = (error?: Error): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      closeWebSocketSafely(socket);
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      finish(new Error(`Timed out after ${timeoutMs}ms waiting for inspector reconnect`));
+    }, timeoutMs);
+
+    socket.on("open", () => {
+      socket.send(
+        JSON.stringify({
+          id: probeCommandId,
+          method: "Runtime.evaluate",
+          params: {
+            expression: "document.readyState",
+            returnByValue: true
+          }
+        }),
+        (error) => {
+          if (error) {
+            finish(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
+      );
+    });
+
+    socket.on("message", (data) => {
+      let message: unknown;
+      try {
+        message = JSON.parse(data.toString());
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+
+      if (isInspectorResponse(message) && message.id === probeCommandId) {
+        finish();
+      }
+    });
+
+    socket.on("error", (error) => finish(error));
+    socket.on("close", () => finish(new Error("Inspector socket closed while reconnecting after Page.reload")));
   });
 }
 
@@ -278,4 +372,8 @@ function isInspectorEvent(value: unknown): value is InspectorEvent {
   }
 
   return typeof (value as { method?: unknown }).method === "string" && (value as { id?: unknown }).id === undefined;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
