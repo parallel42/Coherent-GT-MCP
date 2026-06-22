@@ -179,15 +179,15 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 | --- | --- | --- |
 | Connectivity | `coherentgt_health`, `coherentgt_list_views` | Check debugger reachability and enumerate live views from `/pagelist.json`. |
 | Session cleanup | `coherentgt_release_page`, `coherentgt_release_all` | Close MCP-retained WebInspector sockets for one page or all pages. |
-| Generic diagnostics | `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page` | Normalize page metadata, evaluation results, console/runtime errors, page health, network/WebSocket activity, listener data, and host correlation. |
+| Generic diagnostics | `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_engine_diagnostics`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page` | Normalize page metadata, evaluation results, engine/native bridge bindings, console/runtime errors, page health, network/WebSocket activity, listener data, and host correlation. |
 | Cached large replies | `coherentgt_result_read`, `coherentgt_result_search` | Read bounded chunks from oversized replies or search cached replies by `resultId`. |
 | Raw inspector access | `coherentgt_inspector_command` | Send any supported WebKit Inspector command to a view as an escape hatch. |
 | Runtime JavaScript | `coherentgt_eval_js` | Evaluate expressions with optional promise awaiting and by-value return behavior. |
-| Coherent engine bridge | `coherentgt_trigger_event`, `coherentgt_call_engine` | Trigger `engine.trigger(...)` events or call `engine.call(...)` functions with JSON-safe arguments. |
-| DOM inspection | `coherentgt_get_document`, `coherentgt_query_selector`, `coherentgt_get_native_document`, `coherentgt_get_outer_html`, `coherentgt_inspect_selector` | Read serialized DOM, query selectors, native DOM trees, native outer HTML, and one-call selector visibility/style summaries. |
+| Coherent engine bridge | `coherentgt_trigger_event`, `coherentgt_call_engine`, `coherentgt_engine_diagnostics` | Trigger `engine.trigger(...)` events, call `engine.call(...)`, or inspect available bridge functions with JSON-safe arguments. |
+| DOM inspection | `coherentgt_get_document`, `coherentgt_query_selector`, `coherentgt_get_native_document`, `coherentgt_get_outer_html`, `coherentgt_inspect_selector` | Read serialized DOM, query selectors, native DOM trees, native outer HTML, and one-call selector visibility/style/action summaries. |
 | CSS inspection and mutation | `coherentgt_get_stylesheets`, `coherentgt_get_stylesheet_text`, `coherentgt_get_matched_styles`, `coherentgt_set_style` | List stylesheets, read CSS text, inspect matched rules, and apply inline styles. |
 | Resource inspection | `coherentgt_get_resource_tree`, `coherentgt_get_resource_content`, `coherentgt_search_resource`, `coherentgt_probe_resource`, `coherentgt_probe_image` | Read the frame/resource tree, fetch/search resource content, correlate requested resources with network/local metadata, and verify image decode dimensions. |
-| UI interaction and navigation | `coherentgt_click`, `coherentgt_reload_view`, `coherentgt_navigate_view` | Dispatch click events, reload views, and navigate views. |
+| UI interaction and navigation | `coherentgt_activate`, `coherentgt_click_at`, `coherentgt_click`, `coherentgt_reload_view`, `coherentgt_navigate_view` | Activate UI with explicit postcondition/state-change reporting, attempt trusted coordinate clicks when supported, dispatch synthetic DOM click events, reload views, and navigate views. |
 | Persistent debugging | `coherentgt_debug_start`, `coherentgt_debug_stop`, `coherentgt_debug_status`, `coherentgt_debug_events`, `coherentgt_debug_command` | Open long-lived inspector sessions, buffer debugger events, and send session-scoped commands. This is target-dependent; some Coherent instances reset the socket during debugger attachment. |
 | Script analysis | `coherentgt_debug_list_scripts`, `coherentgt_debug_get_script_source`, `coherentgt_debug_search_script`, `coherentgt_debug_search_all_scripts` | Track parsed scripts, retrieve script source, and search one or many scripts. |
 | Breakpoints | `coherentgt_debug_set_breakpoint_by_url`, `coherentgt_debug_set_breakpoint`, `coherentgt_debug_remove_breakpoint`, `coherentgt_debug_list_breakpoints`, `coherentgt_debug_set_event_listener_breakpoint`, `coherentgt_debug_set_xhr_breakpoint`, `coherentgt_debug_set_dom_breakpoint` | Manage URL, script-location, event-listener, XHR/fetch, and DOM breakpoints. |
@@ -255,6 +255,10 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Defaults: `awaitPromise: true`.
   - Mutating: can invoke live UI/game bridge behavior.
 
+- `coherentgt_engine_diagnostics`
+  - Input: `{ pageId: number }`
+  - Evaluates a read-only diagnostic expression that reports page title/URL/lifecycle state, `engine` keys, `engine.events` keys, `engine.call`/`engine.trigger` availability, and common native bridge globals such as `TriggerEvent` and `SendMessage`.
+
 ### DOM, CSS, and Resources
 
 - `coherentgt_get_document`
@@ -289,7 +293,7 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 
 - `coherentgt_inspect_selector`
   - Input: `{ pageId: number, selector: string, includeComputedStyle?: boolean, includeMatchedRules?: boolean, includeOuterHtml?: boolean }`
-  - Uses native WebInspector DOM/CSS domains to return selector existence, node id, outer HTML, computed style, bounding box, visibility summary, and optional matched rules.
+  - Uses native WebInspector DOM/CSS domains to return selector existence, node id, outer HTML, computed style, bounding box, visibility summary, optional matched rules, and compact action metadata from target/descendant attributes such as `data-action`, `resource-id`, and `data-input-group`.
   - Defaults: `includeComputedStyle: true`, `includeMatchedRules: false`, `includeOuterHtml: true`.
   - The selector is caller-provided; the server does not assume page-specific classes, roots, panels, routes, or globals.
 
@@ -329,6 +333,20 @@ The server is intentionally broad: it supports quick health checks, detailed ins
 - `coherentgt_click`
   - Input: `{ pageId: number, selector: string }`
   - Dispatches mouse events on the first matched element.
+  - This is synthetic DOM event dispatch; `clicked: true` means events were dispatched, not that the native Coherent/MSFS shell accepted the action.
+  - Mutating.
+
+- `coherentgt_click_at`
+  - Input: `{ pageId: number, x: number, y: number, coordinateSpace?: "viewport", button?: "left", postDelayMs?: number }`
+  - Attempts WebInspector `Input.dispatchMouseEvent` at viewport coordinates and returns the dispatch method, target coordinates, `pageReachableAfter`, page state before/after, and no-state-change warnings.
+  - Defaults: `coordinateSpace: "viewport"`, `button: "left"`, `postDelayMs: 100`.
+  - Mutating. Support depends on whether the Coherent target exposes the `Input` inspector domain.
+
+- `coherentgt_activate`
+  - Input: `{ pageId: number, selector?: string, x?: number, y?: number, activation: "trusted-click" | "dom-click" | "element-click", button?: "left", postconditionExpression?: string, timeoutMs?: number, postDelayMs?: number }`
+  - Activates a selector or coordinate and distinguishes `dispatch.dispatched` from `postcondition.ok`.
+  - `trusted-click` uses `Input.dispatchMouseEvent` with explicit coordinates or the selector center; `dom-click` dispatches synthetic mouse events; `element-click` calls `element.click()`.
+  - When target text and page identity are unchanged after activation and the postcondition is absent or false, the result includes a no-state-change warning.
   - Mutating.
 
 - `coherentgt_reload_view`
@@ -601,7 +619,7 @@ This project is a local development and debugging tool. Several tools can modify
 
 - `coherentgt_eval_js` can run arbitrary JavaScript.
 - `coherentgt_trigger_event` and `coherentgt_call_engine` can communicate with the Coherent engine bridge.
-- `coherentgt_click`, `coherentgt_set_style`, `coherentgt_reload_view`, and `coherentgt_navigate_view` mutate the active UI.
+- `coherentgt_activate`, `coherentgt_click_at`, `coherentgt_click`, `coherentgt_set_style`, `coherentgt_reload_view`, and `coherentgt_navigate_view` mutate the active UI.
 - Profiling captures can reload views when `reload: true`, request heap GC, and toggle visual diagnostics.
 - Debug breakpoints, pause, resume, and stepping affect live JavaScript execution.
 

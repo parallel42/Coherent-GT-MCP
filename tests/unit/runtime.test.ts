@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildSetStyleExpression } from "../../src/tools/css.js";
 import { buildQuerySelectorExpression } from "../../src/tools/dom.js";
 import { buildClickExpression } from "../../src/tools/events.js";
-import { buildEngineCallExpression, buildEngineTriggerExpression } from "../../src/tools/runtime.js";
+import { buildEngineCallExpression, buildEngineDiagnosticsExpression, buildEngineTriggerExpression } from "../../src/tools/runtime.js";
 import { jsonToolResult, ToolResultStore } from "../../src/tools/result.js";
 
 describe("generated JavaScript snippets", () => {
@@ -19,6 +19,16 @@ describe("generated JavaScript snippets", () => {
 
     expect(expression).toContain(JSON.stringify("fn"));
     expect(expression).toContain(JSON.stringify(['"); location.href="bad']));
+  });
+
+  it("builds a legacy-safe engine diagnostics expression", () => {
+    const expression = buildEngineDiagnosticsExpression();
+
+    expect(expression).toContain("globalThis.engine");
+    expect(expression).toContain("TriggerEvent");
+    expect(expression).toContain("SendMessage");
+    expect(expression).not.toContain("Object.fromEntries");
+    expect(expression).not.toContain("...");
   });
 
   it("escapes CSS selector and styles through JSON.stringify", () => {

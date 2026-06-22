@@ -6,6 +6,7 @@ import type { AppConfig } from "./config.js";
 import { coherentgtProfileCapabilities } from "./tools/capabilities.js";
 import { DiagnosticSessionManager } from "./tools/diagnostics.js";
 import { coherentgtEvaluate } from "./tools/evaluate.js";
+import { coherentgtActivate, coherentgtClickAt } from "./tools/actions.js";
 import { coherentgtHealth } from "./tools/health.js";
 import { coherentgtListPages } from "./tools/pages.js";
 import { probeImage, probeResource } from "./tools/resource-probe.js";
@@ -24,8 +25,10 @@ import {
 } from "./tools/native-inspector.js";
 import { coherentgtListViews } from "./tools/views.js";
 import {
+  activateInputSchema,
   captureAllStartInputSchema,
   callEngineInputSchema,
+  clickAtInputSchema,
   clickInputSchema,
   compositingReasonsInputSchema,
   consoleSnapshotInputSchema,
@@ -48,6 +51,7 @@ import {
   debugStopInputSchema,
   debugXhrBreakpointInputSchema,
   evaluateInputSchema,
+  engineDiagnosticsInputSchema,
   eventListenersInputSchema,
   evalJsInputSchema,
   getDocumentInputSchema,
@@ -97,7 +101,12 @@ import { buildGetDocumentExpression, buildQuerySelectorExpression } from "./tool
 import { buildClickExpression } from "./tools/events.js";
 import { jsonToolResult, ToolResultStore } from "./tools/result.js";
 import { ProfilingSessionManager } from "./tools/profiling.js";
-import { buildEngineCallExpression, buildEngineTriggerExpression, runtimeEvaluateParams } from "./tools/runtime.js";
+import {
+  buildEngineCallExpression,
+  buildEngineDiagnosticsExpression,
+  buildEngineTriggerExpression,
+  runtimeEvaluateParams
+} from "./tools/runtime.js";
 import { releaseAllSessions, releasePageSessions } from "./tools/session-release.js";
 
 export type McpSharedState = {
@@ -344,6 +353,30 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
           returnByValue: args.returnByValue,
           timeoutMs: args.timeoutMs ?? config.wsTimeoutMs,
           risk: args.risk
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_engine_diagnostics",
+    {
+      title: "Engine Binding Diagnostics",
+      description:
+        "Inspect generic Coherent engine/native bridge bindings for a page, including engine keys, event keys, call/trigger availability, and page lifecycle state.",
+      inputSchema: engineDiagnosticsInputSchema
+    },
+    async (args: z.infer<typeof engineDiagnosticsInputSchema>) =>
+      run(() =>
+        coherentgtInspectorCommand({
+          debuggerUrl: config.debuggerUrl,
+          pageId: args.pageId,
+          method: "Runtime.evaluate",
+          params: runtimeEvaluateParams({
+            expression: buildEngineDiagnosticsExpression(),
+            awaitPromise: false,
+            returnByValue: true
+          }),
+          timeoutMs: config.wsTimeoutMs
         })
       )
   );
@@ -611,6 +644,57 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
           }),
           timeoutMs: config.wsTimeoutMs
         })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_click_at",
+    {
+      title: "Trusted Click At Coordinates",
+      description:
+        "Mutating: attempt trusted pointer input through WebInspector Input.dispatchMouseEvent at viewport coordinates and report dispatch/state status.",
+      inputSchema: clickAtInputSchema,
+      annotations: {
+        destructiveHint: true,
+        readOnlyHint: false
+      }
+    },
+    async (args: z.infer<typeof clickAtInputSchema>) =>
+      run(() =>
+        coherentgtClickAt({
+          debuggerUrl: config.debuggerUrl,
+          pageId: args.pageId,
+          timeoutMs: config.wsTimeoutMs,
+          x: args.x,
+          y: args.y,
+          button: args.button,
+          postDelayMs: args.postDelayMs
+        })
+      )
+  );
+
+  server.registerTool(
+    "coherentgt_activate",
+    {
+      title: "Activate UI With Verification",
+      description:
+        "Mutating: activate a selector or coordinate using trusted-click, dom-click, or element-click and distinguish dispatch success from optional postcondition/state-change success.",
+      inputSchema: activateInputSchema,
+      annotations: {
+        destructiveHint: true,
+        readOnlyHint: false
+      }
+    },
+    async (args: z.infer<typeof activateInputSchema>) =>
+      run(() =>
+        coherentgtActivate(
+          {
+            debuggerUrl: config.debuggerUrl,
+            pageId: args.pageId,
+            timeoutMs: args.timeoutMs ?? config.wsTimeoutMs
+          },
+          args
+        )
       )
   );
 

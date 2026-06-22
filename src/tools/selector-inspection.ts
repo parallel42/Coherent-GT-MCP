@@ -93,6 +93,7 @@ export function summarizeSelectorInspection(input: {
     },
     computedStyle: Object.keys(computed).length > 0 ? computed : undefined,
     matchedRules: input.matchedRules,
+    actionMetadata: typeof input.outerHTML === "string" ? extractActionMetadata(input.outerHTML) : undefined,
     errors: input.errors && input.errors.length > 0 ? input.errors : undefined
   });
 }
@@ -175,4 +176,64 @@ function compactUndefined(value: Record<string, unknown>): Record<string, unknow
     }
   }
   return output;
+}
+
+function extractActionMetadata(outerHTML: string): Record<string, unknown> | undefined {
+  const elements = parseElementStarts(outerHTML);
+  if (elements.length === 0) {
+    return undefined;
+  }
+
+  const target = elements[0];
+  if (!target) {
+    return undefined;
+  }
+
+  const descendants = elements.slice(1).filter((element) => Object.keys(element.attributes).length > 0);
+  return compactUndefined({
+    target,
+    descendants: descendants.length > 0 ? descendants : undefined
+  });
+}
+
+function parseElementStarts(html: string): Array<{ tag: string; id?: string; className?: string; attributes: Record<string, string> }> {
+  const output: Array<{ tag: string; id?: string; className?: string; attributes: Record<string, string> }> = [];
+  const tagPattern = /<\s*([a-zA-Z0-9-]+)([^>]*)>/g;
+  let tagMatch: RegExpExecArray | null;
+  while ((tagMatch = tagPattern.exec(html))) {
+    const tag = tagMatch[1]?.toLowerCase();
+    const rawAttributes = tagMatch[2] ?? "";
+    if (!tag || tag.startsWith("/") || tag.startsWith("!")) {
+      continue;
+    }
+    const parsed = parseAttributes(rawAttributes);
+    const element = compactUndefined({
+      tag,
+      id: parsed.all.id,
+      className: parsed.all.class,
+      attributes: parsed.interesting
+    }) as { tag: string; id?: string; className?: string; attributes: Record<string, string> };
+    output.push(element);
+  }
+  return output;
+}
+
+function parseAttributes(rawAttributes: string): { all: Record<string, string>; interesting: Record<string, string> } {
+  const all: Record<string, string> = {};
+  const interesting: Record<string, string> = {};
+  const interestingNames = new Set(["data-action", "tags", "sound-events", "resource-id", "data-input-group"]);
+  const attributePattern = /([^\s=/"'>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  let attributeMatch: RegExpExecArray | null;
+  while ((attributeMatch = attributePattern.exec(rawAttributes))) {
+    const name = attributeMatch[1];
+    if (!name) {
+      continue;
+    }
+    const value = attributeMatch[2] ?? attributeMatch[3] ?? attributeMatch[4] ?? "";
+    all[name] = value;
+    if (interestingNames.has(name)) {
+      interesting[name] = value;
+    }
+  }
+  return { all, interesting };
 }

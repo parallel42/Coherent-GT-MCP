@@ -51,4 +51,35 @@ describe("selector inspection", () => {
       }
     });
   });
+
+  it("summarizes actionable hierarchy metadata when outerHTML is available", () => {
+    expect(
+      summarizeSelectorInspection({
+        selector: "ui-resource-element",
+        nodeId: 12,
+        outerHTML:
+          '<ui-resource-element id="id_1" resource-id="TextButton_Large_Special_Fly"><device-button id="id_2" data-action="MENU_FLY" data-input-group="MENU"></device-button></ui-resource-element>'
+      })
+    ).toMatchObject({
+      actionMetadata: {
+        target: {
+          tag: "ui-resource-element",
+          id: "id_1",
+          attributes: {
+            "resource-id": "TextButton_Large_Special_Fly"
+          }
+        },
+        descendants: [
+          {
+            tag: "device-button",
+            id: "id_2",
+            attributes: {
+              "data-action": "MENU_FLY",
+              "data-input-group": "MENU"
+            }
+          }
+        ]
+      }
+    });
+  });
 });

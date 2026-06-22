@@ -103,6 +103,12 @@ export const pageHealthInputSchema = z
   })
   .strict();
 
+export const engineDiagnosticsInputSchema = z
+  .object({
+    pageId: pageIdSchema
+  })
+  .strict();
+
 export const networkSnapshotInputSchema = z
   .object({
     pageId: pageIdSchema,
@@ -190,6 +196,33 @@ export const setStyleInputSchema = z
     pageId: pageIdSchema,
     selector: z.string().min(1),
     styles: z.record(z.string().min(1), z.string())
+  })
+  .strict();
+
+const actionButtonSchema = z.enum(["left"]).optional().default("left");
+
+export const clickAtInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    x: z.number().finite(),
+    y: z.number().finite(),
+    coordinateSpace: z.enum(["viewport"]).optional().default("viewport"),
+    button: actionButtonSchema,
+    postDelayMs: z.number().int().nonnegative().max(30000).optional().default(100)
+  })
+  .strict();
+
+export const activateInputSchema = z
+  .object({
+    pageId: pageIdSchema,
+    selector: z.string().min(1).optional(),
+    x: z.number().finite().optional(),
+    y: z.number().finite().optional(),
+    activation: z.enum(["trusted-click", "dom-click", "element-click"]),
+    button: actionButtonSchema,
+    postconditionExpression: z.string().min(1).optional(),
+    timeoutMs: timeoutMsSchema,
+    postDelayMs: z.number().int().nonnegative().max(30000).optional().default(100)
   })
   .strict();
 

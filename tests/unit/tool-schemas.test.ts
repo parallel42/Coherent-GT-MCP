@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  activateInputSchema,
   captureAllStartInputSchema,
+  clickAtInputSchema,
   consoleSnapshotInputSchema,
   diagnosePageInputSchema,
   debugSetBreakpointByUrlInputSchema,
   debugStartInputSchema,
   evaluateInputSchema,
+  engineDiagnosticsInputSchema,
   eventListenersInputSchema,
   evalJsInputSchema,
   imageProbeInputSchema,
@@ -108,6 +111,10 @@ describe("tool schemas", () => {
       sampleMs: 750,
       consoleLevels: ["error", "warning"]
     });
+
+    expect(engineDiagnosticsInputSchema.parse({ pageId: 2 })).toEqual({
+      pageId: 2
+    });
   });
 
   it("rejects invalid page ids", () => {
@@ -143,6 +150,39 @@ describe("tool schemas", () => {
       styles: {
         outline: "1px solid red"
       }
+    });
+  });
+
+  it("accepts reliable action inputs", () => {
+    expect(
+      clickAtInputSchema.parse({
+        pageId: 42,
+        x: 100,
+        y: 200
+      })
+    ).toEqual({
+      pageId: 42,
+      x: 100,
+      y: 200,
+      coordinateSpace: "viewport",
+      button: "left",
+      postDelayMs: 100
+    });
+
+    expect(
+      activateInputSchema.parse({
+        pageId: 42,
+        selector: "button.primary",
+        activation: "trusted-click",
+        postconditionExpression: "document.body.textContent.indexOf('Done') >= 0"
+      })
+    ).toEqual({
+      pageId: 42,
+      selector: "button.primary",
+      activation: "trusted-click",
+      button: "left",
+      postDelayMs: 100,
+      postconditionExpression: "document.body.textContent.indexOf('Done') >= 0"
     });
   });
 

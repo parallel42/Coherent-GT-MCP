@@ -26,6 +26,51 @@ describe("normalized evaluate results", () => {
     });
   });
 
+  it("flattens awaited promise object values returned by value", () => {
+    expect(
+      normalizeEvaluateResult({
+        response: {
+          id: 1,
+          result: {
+            result: {
+              type: "object",
+              value: { ok: true, value: "x" },
+              description: "Object"
+            },
+            wasThrown: false
+          }
+        },
+        events: []
+      })
+    ).toMatchObject({
+      type: "object",
+      value: { ok: true, value: "x" },
+      wasThrown: false
+    });
+  });
+
+  it("flattens awaited promise string values returned by value", () => {
+    expect(
+      normalizeEvaluateResult({
+        response: {
+          id: 1,
+          result: {
+            result: {
+              type: "string",
+              value: "plain string"
+            },
+            wasThrown: false
+          }
+        },
+        events: []
+      })
+    ).toMatchObject({
+      type: "string",
+      value: "plain string",
+      wasThrown: false
+    });
+  });
+
   it("extracts thrown exception text and stack frames", () => {
     expect(
       normalizeEvaluateResult({

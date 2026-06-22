@@ -132,10 +132,10 @@ Point the MCP server at it with `COHERENT_GT_HOST_HELPER_URL=http://127.0.0.1:33
 ## Tools
 
 - Health/views: `coherentgt_health`, `coherentgt_list_views`
-- Generic diagnostics: `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page`
+- Generic diagnostics: `coherentgt_list_pages`, `coherentgt_evaluate`, `coherentgt_engine_diagnostics`, `coherentgt_console_snapshot`, `coherentgt_runtime_errors`, `coherentgt_page_health`, `coherentgt_network_snapshot`, `coherentgt_event_listeners`, `coherentgt_trace_events`, `coherentgt_diagnose_page`
 - Cached large replies: `coherentgt_result_read`, `coherentgt_result_search`
 - Session cleanup: `coherentgt_release_page`, `coherentgt_release_all`
-- Runtime/control: JavaScript eval, engine calls/events, clicks, reloads, and navigation
+- Runtime/control: JavaScript eval, engine calls/events, synthetic clicks, trusted coordinate clicks when supported, verified activation, reloads, and navigation
 - DOM/CSS/resources: document, selector, style, stylesheet, resource, native inspector helpers, `coherentgt_inspect_selector`, `coherentgt_probe_resource`, and `coherentgt_probe_image`
 - Debugger: persistent debug sessions, script search, breakpoints, pause/resume, stepping, and call-frame evaluation. These are target-dependent and can be fragile in Coherent; prefer lightweight DOM/runtime/resource probes unless a breakpoint session is explicitly needed.
 - Profiling: capabilities guidance, legacy timeline/script/network/heap/layer captures, compact summaries, raw payload lookup, and paint/compositing overlays
@@ -161,10 +161,12 @@ Generic triage flow:
 3. coherentgt_inspect_selector for a caller-provided selector.
 4. coherentgt_probe_resource for loaded JS/CSS and suspect coui:// resources.
 5. coherentgt_probe_image for image decode verification.
-6. Use mutating tools such as coherentgt_reload_view, coherentgt_navigate_view, coherentgt_click, or coherentgt_trigger_event only when the caller supplies selectors, URLs, or engine events.
+6. Use mutating tools such as coherentgt_activate, coherentgt_click_at, coherentgt_reload_view, coherentgt_navigate_view, coherentgt_click, or coherentgt_trigger_event only when the caller supplies selectors, coordinates, URLs, or engine events.
 ```
 
 When `Runtime.evaluate` times out, normalized tools return structured timeout metadata with `likelyCause: "main-thread-busy"` where possible. Prefer native DOM/CSS/resource tools before retrying runtime evaluation.
+
+`coherentgt_click` dispatches synthetic DOM events and can report dispatch success even when native Coherent/MSFS bindings ignore the action. Prefer `coherentgt_activate` with a caller-supplied postcondition for workflow steps, and use `coherentgt_click_at`/`trusted-click` only when the target supports WebInspector `Input.dispatchMouseEvent`.
 
 If you need to attach the standalone Coherent Debugger while the MCP client is still running, call `coherentgt_release_page` for the page or `coherentgt_release_all` for every retained page socket. Resource and image probes close their internal diagnostic network lookup socket automatically after the probe completes.
 
