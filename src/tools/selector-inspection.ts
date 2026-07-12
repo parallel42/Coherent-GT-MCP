@@ -14,6 +14,8 @@ type OptionalCommandResult = {
   error?: string;
 };
 
+type InspectorSend = (method: string, params?: object) => Promise<InspectorCommandResult>;
+
 type StyleEntry = {
   name?: unknown;
   value?: unknown;
@@ -23,41 +25,46 @@ export async function inspectSelector(
   options: InspectorCallOptions,
   input: { selector: string; includeComputedStyle: boolean; includeMatchedRules: boolean; includeOuterHtml: boolean }
 ): Promise<unknown> {
-  return await coherentgtInspectorSession(options, async (send) => {
-    const root = readRecord(extractResult("DOM.getDocument", await send("DOM.getDocument")));
-    const rootNodeId = readRecord(root.root).nodeId;
-    if (typeof rootNodeId !== "number") {
-      throw new Error("DOM.getDocument did not return a root node id");
-    }
+  return await coherentgtInspectorSession(options, (send) => inspectSelectorWithSend(send, input));
+}
 
-    const query = readRecord(
-      extractResult("DOM.querySelector", await send("DOM.querySelector", { nodeId: rootNodeId, selector: input.selector }))
-    );
-    const nodeId = query.nodeId;
-    if (typeof nodeId !== "number" || nodeId <= 0) {
-      return { selector: input.selector, found: false };
-    }
+export async function inspectSelectorWithSend(
+  send: InspectorSend,
+  input: { selector: string; includeComputedStyle: boolean; includeMatchedRules: boolean; includeOuterHtml: boolean }
+): Promise<unknown> {
+  const root = readRecord(extractResult("DOM.getDocument", await send("DOM.getDocument")));
+  const rootNodeId = readRecord(root.root).nodeId;
+  if (typeof rootNodeId !== "number") {
+    throw new Error("DOM.getDocument did not return a root node id");
+  }
 
-    const boxModel = await optionalCommand(send, "DOM.getBoxModel", { nodeId });
-    const computedStyle = input.includeComputedStyle
-      ? await optionalCommand(send, "CSS.getComputedStyleForNode", { nodeId }, "CSS.enable")
-      : undefined;
-    const matchedRules = input.includeMatchedRules
-      ? await optionalCommand(send, "CSS.getMatchedStylesForNode", { nodeId }, "CSS.enable")
-      : undefined;
-    const outerHTML = input.includeOuterHtml ? await optionalCommand(send, "DOM.getOuterHTML", { nodeId }) : undefined;
+  const query = readRecord(
+    extractResult("DOM.querySelector", await send("DOM.querySelector", { nodeId: rootNodeId, selector: input.selector }))
+  );
+  const nodeId = query.nodeId;
+  if (typeof nodeId !== "number" || nodeId <= 0) {
+    return { selector: input.selector, found: false };
+  }
 
-    return summarizeSelectorInspection({
-      selector: input.selector,
-      nodeId,
-      boxModel: boxModel.ok ? boxModel.result : undefined,
-      computedStyle: computedStyle?.ok ? readRecord(computedStyle.result).computedStyle : undefined,
-      matchedRules: matchedRules?.ok ? matchedRules.result : undefined,
-      outerHTML: outerHTML?.ok ? readRecord(outerHTML.result).outerHTML : undefined,
-      errors: [boxModel, computedStyle, matchedRules, outerHTML].filter(
-        (entry): entry is OptionalCommandResult => !!entry && !entry.ok
-      )
-    });
+  const boxModel = await optionalCommand(send, "DOM.getBoxModel", { nodeId });
+  const computedStyle = input.includeComputedStyle
+    ? await optionalCommand(send, "CSS.getComputedStyleForNode", { nodeId }, "CSS.enable")
+    : undefined;
+  const matchedRules = input.includeMatchedRules
+    ? await optionalCommand(send, "CSS.getMatchedStylesForNode", { nodeId }, "CSS.enable")
+    : undefined;
+  const outerHTML = input.includeOuterHtml ? await optionalCommand(send, "DOM.getOuterHTML", { nodeId }) : undefined;
+
+  return summarizeSelectorInspection({
+    selector: input.selector,
+    nodeId,
+    boxModel: boxModel.ok ? boxModel.result : undefined,
+    computedStyle: computedStyle?.ok ? readRecord(computedStyle.result).computedStyle : undefined,
+    matchedRules: matchedRules?.ok ? matchedRules.result : undefined,
+    outerHTML: outerHTML?.ok ? readRecord(outerHTML.result).outerHTML : undefined,
+    errors: [boxModel, computedStyle, matchedRules, outerHTML].filter(
+      (entry): entry is OptionalCommandResult => !!entry && !entry.ok
+    )
   });
 }
 

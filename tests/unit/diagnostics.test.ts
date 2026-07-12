@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { InspectorCommandResult } from "../../src/coherent/protocol.js";
 import type { DiagnosticEvent } from "../../src/tools/diagnostics.js";
 import {
   DiagnosticSessionManager,
@@ -69,6 +70,141 @@ describe("diagnostic helpers", () => {
     });
     expect(closed).toEqual([8]);
     expect(manager.status(8)).toEqual({ pageId: 8, open: false });
+  });
+
+  it("runs diagnose page probes through the active diagnostic session", async () => {
+    const manager = new DiagnosticSessionManager({
+      debuggerUrl: "http://debugger.example.local:19999",
+      timeoutMs: 1000,
+      hostCorrelation: {
+        hostHelperUrl: null,
+        processNames: [],
+        logRoots: [],
+        resourceRoots: []
+      }
+    });
+    const commands: string[] = [];
+    const resourceTree = {
+      frameTree: {
+        frame: { id: "main-frame" },
+        resources: [{ url: "coui://worldutility/app.js", type: "Script", mimeType: "text/javascript" }]
+      }
+    };
+    const session = {
+      isOpen: true,
+      ensureOpen: async () => {},
+      command: async (method: string, params?: object): Promise<InspectorCommandResult> => {
+        commands.push(method);
+        if (method === "Runtime.evaluate") {
+          return inspectorResult({
+            result: {
+              type: "object",
+              value: {
+                title: "World Utility",
+                href: "coui://worldutility/index.html",
+                readyState: "complete",
+                rafFrames: commands.filter((entry) => entry === "Runtime.evaluate").length,
+                sampledAt: Date.now(),
+                requestedSampleMs: 0
+              }
+            }
+          });
+        }
+        if (method === "Page.getResourceTree") {
+          return inspectorResult(resourceTree);
+        }
+        if (method === "Page.getResourceContent") {
+          return inspectorResult({ content: "console.log('ready');", base64Encoded: false });
+        }
+        if (method === "DOM.getDocument") {
+          return inspectorResult({ root: { nodeId: 1 } });
+        }
+        if (method === "DOM.querySelector") {
+          expect(params).toEqual({ nodeId: 1, selector: ".create-scene" });
+          return inspectorResult({ nodeId: 2 });
+        }
+        if (method === "DOM.getBoxModel") {
+          return inspectorResult({ model: { width: 120, height: 32, content: [10, 20, 130, 20, 130, 52, 10, 52] } });
+        }
+        if (method === "CSS.enable") {
+          return inspectorResult({});
+        }
+        if (method === "CSS.getComputedStyleForNode") {
+          return inspectorResult({
+            computedStyle: [
+              { name: "display", value: "block" },
+              { name: "visibility", value: "visible" },
+              { name: "opacity", value: "1" }
+            ]
+          });
+        }
+        if (method === "DOM.getOuterHTML") {
+          return inspectorResult({ outerHTML: '<button class="create-scene">Create Scene</button>' });
+        }
+        throw new Error(`Unexpected command ${method}`);
+      },
+      tryCommand: async (method: string) => {
+        commands.push(`try:${method}`);
+        if (method === "Page.getResourceTree") {
+          return { ok: true, result: resourceTree };
+        }
+        return { ok: true, result: {} };
+      },
+      listEvents: () => [
+        {
+          sequence: 1,
+          timestamp: "2026-07-03T00:00:00.000Z",
+          method: "Network.requestWillBeSent",
+          rawId: "event:1",
+          params: {
+            requestId: "req-1",
+            request: { url: "coui://worldutility/app.js", method: "GET" }
+          }
+        }
+      ],
+      supportedCommands: () => ["Runtime.enable", "Page.enable", "DOM.enable"],
+      close: () => {}
+    };
+    (manager as unknown as { sessions: Map<number, unknown> }).sessions.set(7, session);
+    (manager as unknown as { pageHealth: () => Promise<unknown> }).pageHealth = async () => {
+      throw new Error("diagnosePage should reuse the active session instead of calling pageHealth");
+    };
+
+    const result = await manager.diagnosePage(
+      {
+        listViews: async () => [
+          {
+            id: 7,
+            title: "World Utility",
+            url: "coui://worldutility/index.html",
+            inspectorUrl: "http://debugger.example.local:19999/inspector/7",
+            websocketUrl: "ws://debugger.example.local:19999/7"
+          }
+        ]
+      },
+      {
+        pageId: 7,
+        sampleMs: 0,
+        consoleLevels: [],
+        selectors: [".create-scene"],
+        resources: ["coui://worldutility/app.js"]
+      }
+    );
+
+    expect(result).toMatchObject({
+      selectors: [{ selector: ".create-scene", found: true }],
+      resourceProbes: [{ url: "coui://worldutility/app.js", foundInResourceTree: true }]
+    });
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        "Runtime.evaluate",
+        "try:Page.getResourceTree",
+        "DOM.getDocument",
+        "DOM.querySelector",
+        "Page.getResourceTree",
+        "Page.getResourceContent"
+      ])
+    );
   });
 
   it("retries a diagnostic command once after a stale session reset", async () => {
@@ -252,3 +388,13 @@ describe("diagnostic helpers", () => {
     });
   });
 });
+
+function inspectorResult(result: unknown): InspectorCommandResult {
+  return {
+    response: {
+      id: 1,
+      result
+    },
+    events: []
+  };
+}

@@ -2,11 +2,17 @@ import WebSocket from "ws";
 import type { InspectorCommandResult, InspectorCommandResponse, InspectorEvent } from "./protocol.js";
 import { closeWebSocketSafely } from "./websocket-lifecycle.js";
 
+const DEFAULT_RELOAD_RECONNECT_TIMEOUT_MS = 30000;
+const RELOAD_RECONNECT_PROBE_TIMEOUT_MS = 1000;
+const RELOAD_RECONNECT_INITIAL_DELAY_MS = 100;
+const RELOAD_RECONNECT_MAX_DELAY_MS = 1000;
+
 export async function sendInspectorCommand(options: {
   websocketUrl: string;
   method: string;
   params?: object;
   timeoutMs: number;
+  reconnectTimeoutMs?: number;
 }): Promise<InspectorCommandResult> {
   const maxAttempts = 2;
   let lastError: unknown;
@@ -15,7 +21,7 @@ export async function sendInspectorCommand(options: {
       return await sendInspectorCommandOnce(options);
     } catch (error) {
       lastError = error;
-      if (attempt + 1 < maxAttempts && isRetriableInspectorError(error)) {
+      if (attempt + 1 < maxAttempts && isRetriableInspectorError(error) && !isReloadReconnectError(error)) {
         continue;
       }
       throw error;
@@ -30,6 +36,7 @@ async function sendInspectorCommandOnce(options: {
   method: string;
   params?: object;
   timeoutMs: number;
+  reconnectTimeoutMs?: number;
 }): Promise<InspectorCommandResult> {
   const commandId = 1;
   const events: InspectorEvent[] = [];
@@ -77,9 +84,9 @@ async function sendInspectorCommandOnce(options: {
       settled = true;
       clearTimeout(timeout);
       closeWebSocketSafely(socket);
-      waitForInspectorReconnect(options.websocketUrl, options.timeoutMs).then(
+      waitForInspectorReconnect(options.websocketUrl, reloadReconnectTimeoutMs(options)).then(
         () => resolve(reloadClosedResult(true)),
-        (error) => reject(error instanceof Error ? error : new Error(String(error)))
+        (error) => reject(new ReloadReconnectError(error instanceof Error ? error.message : String(error)))
       );
     };
 
@@ -150,18 +157,24 @@ async function sendInspectorCommandOnce(options: {
 async function waitForInspectorReconnect(websocketUrl: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
+  let retryDelayMs = RELOAD_RECONNECT_INITIAL_DELAY_MS;
 
   while (Date.now() < deadline) {
     try {
-      await probeInspectorConnection(websocketUrl, Math.min(1000, Math.max(1, deadline - Date.now())));
+      await probeInspectorConnection(
+        websocketUrl,
+        Math.min(RELOAD_RECONNECT_PROBE_TIMEOUT_MS, Math.max(1, deadline - Date.now()))
+      );
       return;
     } catch (error) {
       lastError = error;
-      await delay(Math.min(100, Math.max(0, deadline - Date.now())));
+      await delay(Math.min(retryDelayMs, Math.max(0, deadline - Date.now())));
+      retryDelayMs = Math.min(retryDelayMs * 2, RELOAD_RECONNECT_MAX_DELAY_MS);
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error("Timed out waiting for inspector reconnect after Page.reload");
+  const detail = lastError instanceof Error ? `: ${lastError.message}` : "";
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for inspector reconnect after Page.reload${detail}`);
 }
 
 async function probeInspectorConnection(websocketUrl: string, timeoutMs: number): Promise<void> {
@@ -357,6 +370,26 @@ export function isRetriableInspectorError(error: unknown): boolean {
     lower.includes("inspector session is not open") ||
     lower.includes("diagnostic session is not open") ||
     lower.includes("profiling session is not open")
+  );
+}
+
+function reloadReconnectTimeoutMs(options: { timeoutMs: number; reconnectTimeoutMs?: number }): number {
+  return options.reconnectTimeoutMs ?? Math.max(options.timeoutMs, DEFAULT_RELOAD_RECONNECT_TIMEOUT_MS);
+}
+
+class ReloadReconnectError extends Error {
+  readonly reloadAlreadySent = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ReloadReconnectError";
+  }
+}
+
+function isReloadReconnectError(error: unknown): boolean {
+  return (
+    error instanceof ReloadReconnectError ||
+    (!!error && typeof error === "object" && (error as { reloadAlreadySent?: unknown }).reloadAlreadySent === true)
   );
 }
 

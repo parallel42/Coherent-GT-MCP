@@ -6,8 +6,8 @@ import type { InspectorCommandResponse, InspectorCommandResult, InspectorEvent }
 import { closeWebSocketSafely } from "../coherent/websocket-lifecycle.js";
 import { filterInspectableViews, toPageSummary, type PageSummary } from "./pages.js";
 import { normalizeEvaluateResult, normalizeInspectorError } from "./evaluate.js";
-import { probeImage, probeResource } from "./resource-probe.js";
-import { inspectSelector } from "./selector-inspection.js";
+import { probeImageWithSend, probeResourceWithSend } from "./resource-probe.js";
+import { inspectSelectorWithSend } from "./selector-inspection.js";
 import { runtimeEvaluateParams } from "./runtime.js";
 import { queryHostCorrelation, type HostCorrelationOptions } from "./host-helper.js";
 
@@ -64,28 +64,7 @@ export class DiagnosticSessionManager {
   }
 
   async pageHealth(pageId: number, options: { sampleMs: number; globalProbes?: string[] | undefined }): Promise<unknown> {
-    return await this.withSession(pageId, async (session) => {
-      const before = normalizeEvaluateResult(
-        await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
-      );
-      await delay(options.sampleMs);
-      const health = normalizeEvaluateResult(
-        await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
-      );
-      health.value = mergeHealthSamples(before.value, health.value, options.sampleMs);
-      const probes =
-        options.globalProbes && options.globalProbes.length > 0
-          ? normalizeEvaluateResult(
-              await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildRuntimeProbeExpression(options.globalProbes) }))
-            )
-          : undefined;
-
-      return {
-        pageId,
-        health,
-        probes
-      };
-    });
+    return await this.withSession(pageId, (session) => this.pageHealthForSession(pageId, session, options));
   }
 
   async networkSnapshot(pageId: number, options: { maxEvents: number; maxPayloadChars: number }): Promise<unknown> {
@@ -156,22 +135,32 @@ export class DiagnosticSessionManager {
       const page = selectPage(this.options.debuggerUrl, views, input.pageId, input.pageFilter);
       selectedPageId = page.id;
       return await this.withSession(page.id, async (session) => {
-        const [health, resourceTree, hostCorrelation] = await Promise.all([
-          this.pageHealth(page.id, { sampleMs: input.sampleMs, globalProbes: input.globalProbes }).catch((error) => ({
+        const health = await this.pageHealthForSession(page.id, session, {
+          sampleMs: input.sampleMs,
+          globalProbes: input.globalProbes
+        }).catch((error) => ({
             pageId: page.id,
             health: normalizeInspectorError(error, { method: "Runtime.evaluate", timeoutMs: this.options.timeoutMs })
-          })),
-          session.tryCommand("Page.getResourceTree"),
-          queryHostCorrelation(this.options.hostCorrelation)
-        ]);
+          }));
+        const resourceTree = await session.tryCommand("Page.getResourceTree");
+        const hostCorrelation = await queryHostCorrelation(this.options.hostCorrelation);
         const events = session.listEvents({ maxEvents: 1000 });
         const consoleSummary = summarizeConsoleEvents(events, { levels: input.consoleLevels, maxEvents: 50 });
         const runtimeErrors = summarizeRuntimeErrors(events, { maxEvents: 50 });
         const network = summarizeNetworkEvents(events, { maxPayloadChars: 240 });
         const resourceSummary = summarizeResourceTree(resourceTree.ok ? resourceTree.result : undefined);
-        const selectors = await Promise.all((input.selectors ?? []).map((selector) => this.inspectSelectorProbe(page.id, selector)));
-        const resourceProbes = await Promise.all((input.resources ?? []).map((url) => this.resourceProbe(page.id, url)));
-        const imageProbes = await Promise.all((input.images ?? []).map((url) => this.imageProbe(page.id, url)));
+        const selectors: unknown[] = [];
+        for (const selector of input.selectors ?? []) {
+          selectors.push(await this.inspectSelectorProbe(session, selector));
+        }
+        const resourceProbes: unknown[] = [];
+        for (const url of input.resources ?? []) {
+          resourceProbes.push(await this.resourceProbe(session, url));
+        }
+        const imageProbes: unknown[] = [];
+        for (const url of input.images ?? []) {
+          imageProbes.push(await this.imageProbe(session, url));
+        }
 
         return {
           page,
@@ -209,10 +198,7 @@ export class DiagnosticSessionManager {
     options: { releaseAfter?: boolean | undefined } = {}
   ): Promise<Record<string, unknown> | undefined> {
     try {
-      return await this.withSession(pageId, (session) => {
-        const summary = summarizeNetworkEvents(session.listEvents({ maxEvents: 5000 }), { maxPayloadChars: 240 });
-        return summary.requests.find((entry) => readRecord(entry).url === url) as Record<string, unknown> | undefined;
-      });
+      return await this.withSession(pageId, (session) => this.networkForUrlFromSession(session, url));
     } finally {
       if (options.releaseAfter) {
         this.release(pageId);
@@ -287,14 +273,42 @@ export class DiagnosticSessionManager {
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
-  private async inspectSelectorProbe(pageId: number, selector: string): Promise<unknown> {
+  private async pageHealthForSession(
+    pageId: number,
+    session: DiagnosticSession,
+    options: { sampleMs: number; globalProbes?: string[] | undefined }
+  ): Promise<unknown> {
+    const before = normalizeEvaluateResult(
+      await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
+    );
+    await delay(options.sampleMs);
+    const health = normalizeEvaluateResult(
+      await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildPageHealthExpression(options.sampleMs) }))
+    );
+    health.value = mergeHealthSamples(before.value, health.value, options.sampleMs);
+    const probes =
+      options.globalProbes && options.globalProbes.length > 0
+        ? normalizeEvaluateResult(
+            await session.command("Runtime.evaluate", runtimeEvaluateParams({ expression: buildRuntimeProbeExpression(options.globalProbes) }))
+          )
+        : undefined;
+
+    return {
+      pageId,
+      health,
+      probes
+    };
+  }
+
+  private networkForUrlFromSession(session: DiagnosticSession, url: string): Record<string, unknown> | undefined {
+    const summary = summarizeNetworkEvents(session.listEvents({ maxEvents: 5000 }), { maxPayloadChars: 240 });
+    return summary.requests.find((entry) => readRecord(entry).url === url) as Record<string, unknown> | undefined;
+  }
+
+  private async inspectSelectorProbe(session: DiagnosticSession, selector: string): Promise<unknown> {
     try {
-      return await inspectSelector(
-        {
-          debuggerUrl: this.options.debuggerUrl,
-          pageId,
-          timeoutMs: this.options.timeoutMs
-        },
+      return await inspectSelectorWithSend(
+        (method, params) => session.command(method, params),
         {
           selector,
           includeComputedStyle: true,
@@ -307,20 +321,16 @@ export class DiagnosticSessionManager {
     }
   }
 
-  private async resourceProbe(pageId: number, url: string): Promise<unknown> {
+  private async resourceProbe(session: DiagnosticSession, url: string): Promise<unknown> {
     try {
-      return await probeResource(
-        {
-          debuggerUrl: this.options.debuggerUrl,
-          pageId,
-          timeoutMs: this.options.timeoutMs,
-          hostCorrelation: this.options.hostCorrelation
-        },
+      return await probeResourceWithSend(
+        (method, params) => session.command(method, params),
+        { hostCorrelation: this.options.hostCorrelation },
         {
           url,
           includeContent: true,
           includeNetwork: true,
-          network: await this.networkForUrl(pageId, url)
+          network: this.networkForUrlFromSession(session, url)
         }
       );
     } catch (error) {
@@ -328,12 +338,11 @@ export class DiagnosticSessionManager {
     }
   }
 
-  private async imageProbe(pageId: number, url: string): Promise<unknown> {
+  private async imageProbe(session: DiagnosticSession, url: string): Promise<unknown> {
     try {
-      return await probeImage(
+      return await probeImageWithSend(
+        (method, params) => session.command(method, params),
         {
-          debuggerUrl: this.options.debuggerUrl,
-          pageId,
           timeoutMs: this.options.timeoutMs,
           hostCorrelation: this.options.hostCorrelation
         },
@@ -341,7 +350,7 @@ export class DiagnosticSessionManager {
           url,
           timeoutMs: Math.min(this.options.timeoutMs, 5000),
           includeResourceProbe: true,
-          network: await this.networkForUrl(pageId, url)
+          network: this.networkForUrlFromSession(session, url)
         }
       );
     } catch (error) {

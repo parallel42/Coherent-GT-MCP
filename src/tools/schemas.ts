@@ -236,7 +236,9 @@ export const clickInputSchema = z
 export const reloadViewInputSchema = z
   .object({
     pageId: pageIdSchema,
-    ignoreCache: z.boolean().optional().default(false)
+    ignoreCache: z.boolean().optional().default(false),
+    timeoutMs: timeoutMsSchema,
+    reconnectTimeoutMs: timeoutMsSchema
   })
   .strict();
 

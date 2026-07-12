@@ -1,7 +1,13 @@
 import type { InspectorCommandResult } from "../coherent/protocol.js";
-import { coherentgtEvaluate, type NormalizedEvaluateResult } from "./evaluate.js";
+import {
+  coherentgtEvaluate,
+  normalizeEvaluateResult,
+  normalizeInspectorError,
+  type NormalizedEvaluateResult
+} from "./evaluate.js";
 import { queryHostResourceResolution, type HostCorrelationOptions } from "./host-helper.js";
 import { coherentgtInspectorSession } from "./inspector.js";
+import { runtimeEvaluateParams } from "./runtime.js";
 
 type InspectorCallOptions = {
   debuggerUrl: string;
@@ -9,6 +15,8 @@ type InspectorCallOptions = {
   timeoutMs: number;
   hostCorrelation?: HostCorrelationOptions | undefined;
 };
+
+type InspectorSend = (method: string, params?: object) => Promise<InspectorCommandResult>;
 
 export async function probeResource(
   options: InspectorCallOptions,
@@ -20,25 +28,33 @@ export async function probeResource(
     network?: Record<string, unknown> | undefined;
   }
 ): Promise<Record<string, unknown>> {
-  const native = await coherentgtInspectorSession(options, async (send) => {
-    const resourceTree = extractResult("Page.getResourceTree", await send("Page.getResourceTree"));
-    const resources = collectResources(readRecord(resourceTree).frameTree);
-    const resource = resources.find((entry) => entry.url === input.url);
-    const frameId = input.frameId ?? mainFrameId(resourceTree);
-    const content =
-      input.includeContent && frameId
-        ? await optionalResourceContent(send, {
-            frameId,
-            url: input.url
-          })
-        : undefined;
+  return await coherentgtInspectorSession(options, (send) =>
+    probeResourceWithSend(send, { hostCorrelation: options.hostCorrelation }, input)
+  );
+}
 
-    return {
-      resource,
-      content: content?.ok ? content.result : undefined,
-      errors: content && !content.ok ? [content] : []
-    };
-  });
+export async function probeResourceWithSend(
+  send: InspectorSend,
+  options: { hostCorrelation?: HostCorrelationOptions | undefined },
+  input: {
+    url: string;
+    includeContent: boolean;
+    includeNetwork: boolean;
+    frameId?: string | undefined;
+    network?: Record<string, unknown> | undefined;
+  }
+): Promise<Record<string, unknown>> {
+  const resourceTree = extractResult("Page.getResourceTree", await send("Page.getResourceTree"));
+  const resources = collectResources(readRecord(resourceTree).frameTree);
+  const resource = resources.find((entry) => entry.url === input.url);
+  const frameId = input.frameId ?? mainFrameId(resourceTree);
+  const content =
+    input.includeContent && frameId
+      ? await optionalResourceContent(send, {
+          frameId,
+          url: input.url
+        })
+      : undefined;
 
   const hostResolution = options.hostCorrelation
     ? await queryHostResourceResolution(options.hostCorrelation, input.url)
@@ -46,11 +62,11 @@ export async function probeResource(
 
   return summarizeResourceProbe({
     url: input.url,
-    resource: native.resource,
-    content: native.content,
+    resource,
+    content: content?.ok ? content.result : undefined,
     network: input.includeNetwork ? input.network : undefined,
     hostResolution,
-    errors: native.errors
+    errors: content && !content.ok ? [content] : []
   });
 }
 
@@ -74,6 +90,57 @@ export async function probeImage(
   });
   const resource = input.includeResourceProbe
     ? await probeResource(options, {
+        url: input.url,
+        includeContent: true,
+        includeNetwork: true,
+        network: input.network
+      })
+    : undefined;
+
+  return compactUndefined({
+    url: input.url,
+    runtimeDecode,
+    resource,
+    verdict: imageProbeVerdict(runtimeDecode, resource)
+  });
+}
+
+export async function probeImageWithSend(
+  send: InspectorSend,
+  options: { timeoutMs: number; hostCorrelation?: HostCorrelationOptions | undefined },
+  input: {
+    url: string;
+    timeoutMs: number;
+    includeResourceProbe: boolean;
+    network?: Record<string, unknown> | undefined;
+  }
+): Promise<Record<string, unknown>> {
+  const timeoutMs = input.timeoutMs + 1000;
+  const startedAt = Date.now();
+  let runtimeDecode: NormalizedEvaluateResult;
+  try {
+    runtimeDecode = normalizeEvaluateResult(
+      await send(
+        "Runtime.evaluate",
+        runtimeEvaluateParams({
+          expression: buildImageProbeExpression(input.url, input.timeoutMs),
+          awaitPromise: true,
+          returnByValue: true
+        })
+      )
+    );
+    runtimeDecode.timing = { timeoutMs, elapsedMs: Date.now() - startedAt };
+  } catch (error) {
+    runtimeDecode = normalizeInspectorError(error, {
+      method: "Runtime.evaluate",
+      timeoutMs,
+      elapsedMs: Date.now() - startedAt
+    });
+  }
+  runtimeDecode.risk = "read-only";
+
+  const resource = input.includeResourceProbe
+    ? await probeResourceWithSend(send, options, {
         url: input.url,
         includeContent: true,
         includeNetwork: true,

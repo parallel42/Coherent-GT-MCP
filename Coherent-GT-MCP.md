@@ -350,8 +350,8 @@ The server is intentionally broad: it supports quick health checks, detailed ins
   - Mutating.
 
 - `coherentgt_reload_view`
-  - Input: `{ pageId: number, ignoreCache?: boolean }`
-  - Uses `Page.reload` when available and falls back to `location.reload()`.
+  - Input: `{ pageId: number, ignoreCache?: boolean, timeoutMs?: number, reconnectTimeoutMs?: number }`
+  - Uses `Page.reload` when available and falls back to `location.reload()`. Reloads wait for the inspector target to reconnect with a longer reload-specific reconnect budget; set `reconnectTimeoutMs` for unusually heavy pages.
   - Mutating.
 
 - `coherentgt_navigate_view`

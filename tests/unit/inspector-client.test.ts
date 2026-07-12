@@ -166,6 +166,56 @@ describe("inspector client resilience", () => {
     expect(reconnectProbes).toBe(1);
   });
 
+  it("waits past a short Page.reload command timeout for a heavy page to reconnect", async () => {
+    const { server, websocketUrl } = await createServer();
+    const reconnectReadyAt = Date.now() + 120;
+    let connections = 0;
+    let reloads = 0;
+    let reconnectProbes = 0;
+
+    server.on("connection", (socket) => {
+      connections += 1;
+      socket.once("message", (data) => {
+        const message = JSON.parse(data.toString()) as { id: number; method: string };
+        if (message.method === "Page.reload") {
+          reloads += 1;
+          return;
+        }
+
+        if (message.method === "Runtime.evaluate") {
+          reconnectProbes += 1;
+        }
+
+        if (Date.now() < reconnectReadyAt) {
+          destroySocket(socket);
+          return;
+        }
+
+        socket.send(JSON.stringify({ id: message.id, result: { result: { type: "string", value: "complete" } } }));
+      });
+    });
+
+    await expect(
+      sendInspectorCommand({
+        websocketUrl,
+        method: "Page.reload",
+        timeoutMs: 25
+      })
+    ).resolves.toMatchObject({
+      response: {
+        id: 1,
+        result: {
+          reloaded: true,
+          connectionClosed: true,
+          reconnected: true
+        }
+      }
+    });
+    expect(connections).toBeGreaterThanOrEqual(3);
+    expect(reloads).toBe(1);
+    expect(reconnectProbes).toBeGreaterThanOrEqual(2);
+  });
+
 });
 
 async function createServer(): Promise<{ server: WebSocketServer; websocketUrl: string }> {

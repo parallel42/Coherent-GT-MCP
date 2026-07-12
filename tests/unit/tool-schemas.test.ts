@@ -26,6 +26,7 @@ import {
   releaseAllInputSchema,
   releasePageInputSchema,
   profileStartInputSchema,
+  reloadViewInputSchema,
   resultReadInputSchema,
   resultSearchInputSchema,
   runtimeErrorsInputSchema,
@@ -244,6 +245,22 @@ describe("tool schemas", () => {
       url: "coui://example/assets/icon.png",
       timeoutMs: 5000,
       includeResourceProbe: true
+    });
+  });
+
+  it("accepts configurable reload reconnect waits", () => {
+    expect(
+      reloadViewInputSchema.parse({
+        pageId: 30,
+        ignoreCache: true,
+        timeoutMs: 1000,
+        reconnectTimeoutMs: 45000
+      })
+    ).toEqual({
+      pageId: 30,
+      ignoreCache: true,
+      timeoutMs: 1000,
+      reconnectTimeoutMs: 45000
     });
   });
 

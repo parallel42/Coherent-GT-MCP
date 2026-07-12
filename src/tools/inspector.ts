@@ -11,6 +11,7 @@ export async function coherentgtInspectorCommand(options: {
   method: string;
   params?: object | undefined;
   timeoutMs: number;
+  reconnectTimeoutMs?: number | undefined;
 }): Promise<unknown> {
   const websocketUrl = buildWebsocketUrl(options.debuggerUrl, assertPageId(options.pageId));
   return await enqueueInspectorCommand(websocketUrl, async () => {
@@ -19,6 +20,7 @@ export async function coherentgtInspectorCommand(options: {
       method: string;
       timeoutMs: number;
       params?: object;
+      reconnectTimeoutMs?: number;
     } = {
       websocketUrl,
       method: options.method,
@@ -27,6 +29,9 @@ export async function coherentgtInspectorCommand(options: {
 
     if (options.params !== undefined) {
       commandOptions.params = options.params;
+    }
+    if (options.reconnectTimeoutMs !== undefined) {
+      commandOptions.reconnectTimeoutMs = options.reconnectTimeoutMs;
     }
 
     return await sendInspectorCommand(commandOptions);
