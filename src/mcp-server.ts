@@ -716,7 +716,8 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
           pageId: args.pageId,
           method: "Page.reload",
           params: pageReloadParams(args.ignoreCache),
-          timeoutMs: config.wsTimeoutMs
+          timeoutMs: args.timeoutMs ?? config.wsTimeoutMs,
+          reconnectTimeoutMs: args.reconnectTimeoutMs
         });
 
         if (hasInspectorError(reloadResult)) {
@@ -728,7 +729,7 @@ export function createMcpServer(config: AppConfig, options: CreateMcpServerOptio
               expression: buildLocationReloadExpression(),
               returnByValue: true
             }),
-            timeoutMs: config.wsTimeoutMs
+            timeoutMs: args.timeoutMs ?? config.wsTimeoutMs
           });
         }
 
