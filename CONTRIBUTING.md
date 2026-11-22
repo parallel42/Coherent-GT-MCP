@@ -1,115 +1,80 @@
-# How to send your work
+# Git workflow for agents
 
-This file is for each person who changes this repository, and for their AI agent. Read it before you change any file.
+This file is for the AI agent that works in this repository for a person. Follow it for each branch, commit, push and pull request. The person can be new to Git: explain your decisions and each blocker in plain English.
 
-## The idea in one line
+## Fixed facts
 
-Each new job gets its own new branch, made from the newest `master`. When the job is done, you open a pull request. Keven puts it into `master`.
-
-## Why
-
-A branch that lives for a long time gets old. Other people change `master` in the same weeks, and then Git cannot put your work in without conflicts. Someone must then copy your work by hand, and things get lost.
-
-A new branch for each job stays small and new. Small branches go into `master` easily.
-
-## Words you will see
-
-| Word | What it means |
+| Item | Value |
 |---|---|
-| `master` | The shared copy of this project. You cannot push to it directly: GitHub refuses. |
-| Branch | Your own copy of the code for one job. Its name starts with your GitHub user name, for example `Jeppeson2001/new-shelter`. |
-| Pull request (PR) | A request on GitHub: "please put my branch into `master`". People and automatic checks review it there. |
-| Draft PR | A pull request that is not finished yet. |
-| Conflict | You and someone else changed the same lines. Git asks a person to choose. |
+| Repository | `parallel42/Coherent-GT-MCP`. `git remote -v` must show it for both fetch and push of `origin`. |
+| Base branch | `master`. Start each job from `origin/master` and open each pull request into it. |
+| Protected branches | `master`. GitHub rules block direct pushes, force-pushes and deletion. Only Keven merges into them. |
+| Your branch name | `LOGIN/JOB-SLUG`. Get `LOGIN` with `gh api user --jq .login`. GitHub refuses new branches outside the `LOGIN/` folder of each permitted collaborator. |
+| File placement and tests | As `AGENTS.md` says. Read it before any Git command. Do not add new folders at the repository root. |
 
-## The steps
-
-In the commands, replace `<you>` with your GitHub user name and `<job>` with a short name for the job, for example `new-shelter`.
-
-### 1. Start a job: new branch from the newest `master`
-
-```
-git fetch origin
-git switch -c <you>/<job> origin/master
-```
-
-Do not start from an old branch, and do not keep one branch for all your jobs.
-
-### 2. Do the work and save it (commit)
-
-```
-git add <the files you changed>
-git status
-git commit -m "Short sentence that says what changed"
-```
-
-Add only the files of this job. Do not add build output, `.agent-work/`, or files from other jobs.
-
-Before you commit, read the `git status` output. Under "Changes to be committed" you must see only the files of this job. If you see other files, remove them from the commit with `git restore --staged <file>` (this keeps your changes in the file).
-
-### 3. Send it to GitHub and open a draft PR
-
-```
-git push -u origin HEAD
-gh pr create --draft --base master --fill
-```
-
-If you do not have `gh`, open the repository on GitHub. Click "Compare & pull request", set the base to `master`, and select "Create draft pull request".
-
-### 4. Tell us on Discord
-
-Post the PR link in the product channel, with one line that says what it does.
-
-### 5. Read the review and fix
-
-The checks and the reviewers write comments on the PR in GitHub. Make the fixes on the same branch, then:
-
-```
-git add <files>
-git commit -m "Fix review notes"
-git push
-```
-
-The PR updates by itself. Do not make a new branch or a new PR for fixes.
-
-### 6. If `master` changed while you worked
-
-```
-git fetch origin
-git merge origin/master
-git push
-```
-
-If Git reports a conflict, the merge stops before `git push`. Fix the conflict (or ask your agent or us), then run `git add <files>`, `git commit` and `git push`. Always push after a merge, also when there was no conflict, so that GitHub has the new version.
-
-### 7. Done
-
-When the work is finished and tested, click "Ready for review" on the PR. Keven merges it. After the merge, the next job starts again at step 1.
+In the commands, replace `LOGIN`, `JOB-SLUG`, `PR_NUMBER` and the sample paths with real values. Put each value in single quotes, as shown, so that the shell does not change it. Double an apostrophe inside a value (`'it''s.md'` in PowerShell) or use the escaping of your shell. Pass a pull request body through a file (`--body-file`), not on the command line.
 
 ## Rules
 
-- One job = one branch = one PR.
-- Always start from the newest `origin/master`.
-- Never push to `master`, and never force-push.
-- Put files where `AGENTS.md` says. Do not make new folders at the top of the repository.
+- One job = one branch = one pull request. Do not keep one long-lived branch for many jobs: it falls behind `master` and then conflicts with the work of other people.
+- Stop at the first command that fails. Read its message before you do anything else.
+- Before each commit, merge and push, `git branch --show-current` must show your job branch, and `git remote -v` must show `parallel42/Coherent-GT-MCP`.
+- Do not push to a protected branch. Do not force-push. Do not rebase or amend commits that you already pushed.
+- Do not merge, approve or close pull requests. Keven merges.
+- Commit only the files of the current job. Do not commit build output, logs, `.agent-work/`, credentials or tokens.
+- Do not change what another job staged or changed. If you find such changes, stop and ask the person.
 
-## Copy this to your AI agent
+## Procedure
 
-```
-You work in this repository. I am a beginner with Git, so explain each step in plain words.
-Read AGENTS.md and CONTRIBUTING.md first.
+1. **Start a new job, or resume one.**
+   - To resume: find the pull request and its branch (`gh pr list --author '@me'`). Then run `git fetch origin` and `git switch 'LOGIN/JOB-SLUG'`. If that branch exists only on `origin`, run `git switch --track 'origin/LOGIN/JOB-SLUG'`. Continue at the step where the job stopped.
+   - To start: `git status` must show a clean working tree. If not, stop and ask the person. Pick a `JOB-SLUG` that `git branch --list 'LOGIN/JOB-SLUG'` and `git ls-remote --heads origin 'LOGIN/JOB-SLUG'` both show as unused. Then:
+   ```
+   git fetch origin
+   git switch -c 'LOGIN/JOB-SLUG' 'origin/master'
+   ```
+2. **Do the work** as `AGENTS.md` says.
+3. **Commit.** Stage named paths only, never `git add -A` or `git add .`:
+   ```
+   git add -- 'path/to/file one.md' 'path/to/file2.cpp'
+   git diff --cached --name-only
+   ```
+   Read the list. It must contain only the files of this job. If it shows another file, stop and ask the person; do not unstage it yourself. Commit only after this check:
+   ```
+   git commit -m 'One sentence: what changed and why'
+   ```
+4. **Get up to date before each push.**
+   ```
+   git fetch origin
+   git rev-list --count 'HEAD..origin/master'
+   ```
+   If the count is more than 0, run `git merge 'origin/master'`.
+   - Without conflicts, Git makes the merge commit.
+   - With conflicts, edit each conflicted file so that both your change and the other change stay, then run `git add -- 'each/resolved file'` and `git commit --no-edit`.
+   - If you cannot tell which change is correct, run `git merge --abort` (this returns the branch to its state before the merge) and ask the person.
+   - After the merge, run the tests of `AGENTS.md` again.
+5. **Push.** Always name the branch on both sides:
+   ```
+   git push -u origin 'refs/heads/LOGIN/JOB-SLUG:refs/heads/LOGIN/JOB-SLUG'
+   ```
+   On the first push only, open a draft pull request. Write the body (why, what changed, how it was tested) to a file first:
+   ```
+   gh pr create --draft --base 'master' --head 'LOGIN/JOB-SLUG' --title 'What changed' --body-file 'pr-body.md'
+   ```
+   Give the person the pull request link once. Do not commit `pr-body.md`.
+6. **Keep the pull request current.** After each new commit, and each time `master` moves before Keven merges: do steps 4 and 5 again. Use the same pull request; do not open a new one. Then check the new head with `gh pr checks PR_NUMBER`.
+7. **Handle review.** Read all three sources, because each one shows different comments:
+   ```
+   gh pr view PR_NUMBER --comments
+   gh api --paginate 'repos/parallel42/Coherent-GT-MCP/pulls/PR_NUMBER/comments'
+   gh pr checks PR_NUMBER
+   ```
+   Fix each finding on the same branch, then do steps 3 to 6.
+8. **Mark it ready** when all of these are true: the work is complete and tested; step 4 gives 0; `gh pr view PR_NUMBER --json headRefOid --jq .headRefOid` equals `git rev-parse HEAD`; `gh pr checks PR_NUMBER` passes. Then run `gh pr ready PR_NUMBER`. Do not merge.
+9. **After the merge,** leave the local branch as it is. The next job starts at step 1 from a fresh `origin/master`.
 
-Rules for each job:
-1. Run `git fetch origin`, then make a new branch from the newest master:
-   `git switch -c <my GitHub user name>/<short-job-name> origin/master`.
-   Never build on an old branch, and never keep one branch for many jobs.
-2. Put files where AGENTS.md says. Do not make new folders at the repository root.
-3. Commit only the files of this job. Run `git status` before each commit and make sure that only those files are staged.
-   Never commit build output or .agent-work/.
-4. Push with `git push -u origin HEAD`. Open a draft pull request to master:
-   `gh pr create --draft --base master --fill`. Give me the PR link.
-5. For review fixes, commit and push on the same branch. Do not open a new PR.
-6. If master moved, run `git fetch origin` and `git merge origin/master`. Resolve conflicts, then always push.
-7. Never push to master, and never force-push.
-8. When the work is tested, run `gh pr ready`. Keven merges it.
-```
+## When GitHub refuses a push
+
+A message such as `GH013`, "Repository rule violations" or "Cannot update this protected ref" names the rule that refused the push. Do not retry with force. Read that rule, then check the repository (`git remote -v`), the branch (`git branch --show-current`) and the account (`gh api user --jq .login`).
+- If the rule is about the destination branch (a protected branch, or a branch outside your `LOGIN/` folder): push the same commits to your verified job branch as in step 5. If the job already has a pull request, keep using it.
+- For any other rule (for example commit signing): do not retry. Tell the person the rule name and stop.
