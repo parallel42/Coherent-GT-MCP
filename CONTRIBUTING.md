@@ -1,6 +1,6 @@
 # Git workflow for agents
 
-This file is for the AI agent that works in this repository for a person. Follow it for each branch, commit, push and pull request. The person can be new to Git: explain your decisions and each blocker in plain English.
+This file is for the AI agent that works in this repository for a person. Follow it for each branch, commit, push and pull request, except when the "Direct publication" row below applies. The person can be new to Git: explain your decisions and each blocker in plain English.
 
 ## Fixed facts
 
@@ -9,7 +9,7 @@ This file is for the AI agent that works in this repository for a person. Follow
 | Repository | `parallel42/Coherent-GT-MCP`. `git remote -v` must show it for both fetch and push of `origin`. |
 | Base branch | `master`. Start each job from `origin/master` and open each pull request into it. |
 | Protected branches | `master`. GitHub rules block direct pushes, force-pushes and deletion. Only Keven merges into them. |
-| Direct publication | Not active. `AGENTS.md` says when the repository maintainers activate it and how to push then. Until then, use this file for each change. |
+| Direct publication | `AGENTS.md` holds its status, its two conditions and its steps. When both conditions are true, its steps replace this file for changes to `master`. When one condition is false, use this file for each change. |
 | Your branch name | `LOGIN/JOB-SLUG`. Get `LOGIN` with `gh api user --jq .login`. GitHub refuses new branches outside the `LOGIN/` folder of each permitted collaborator. |
 | File placement and tests | As `AGENTS.md` says. Read it before any Git command. Do not add new folders at the repository root. |
 
